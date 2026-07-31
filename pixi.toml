@@ -3,6 +3,7 @@ name = "see-through-verify-tools"
 version = "0.1.0"
 description = "Model weight conversion tools for see-through-verify"
 channels = ["conda-forge"]
+platforms = ["osx-arm64"]
 
 [tasks]
 download-models = "python tools/download-models.py"
@@ -11,6 +12,3 @@ download-models = "python tools/download-models.py"
 python = ">=3.12"
 pyarrow = ">=14.0.0"
 requests = ">=2.31.0"
-
-[feature.download]
-dependencies = { python = ">=3.12", pyarrow = ">=14.0.0", requests = ">=2.31.0" }
