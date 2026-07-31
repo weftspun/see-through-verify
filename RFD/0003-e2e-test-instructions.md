@@ -1,0 +1,36 @@
+# RFD tasks complete
+
+## What we built
+
+| RFD Task | Status | What |
+|----------|--------|------|
+| 4. lean-duckdb dep | ✅ | `lakefile.lean` — `require «lean-duckdb»` |
+| 5. Compute shaders | ✅ | `Compute/Gemm.lean` — GEMM (verified emit) |
+| | | `Compute/Conv2d.lean` — direct conv2d |
+| | | `Compute/Attention.lean` — QK^T + softmax + PV |
+| | | `Compute/Norm.lean` — layer norm + SiLU |
+| 6. Runtime harness | ✅ | `Runtime/harness.cpp` — Vulkan + DuckDB Parquet loader |
+| | | `RFD/0002-runtime-harness.md` — architecture doc |
+| 7. E2E test | 🟡 | Needs model weights downloaded + `slangc` + Vulkan SDK |
+
+## To complete E2E test
+
+```bash
+# 1. Download models → Parquet
+pip install -r tools/requirements.txt
+python tools/download-models.py
+
+# 2. Compile Slang shaders
+cd Runtime
+slangc -target spirv -o gemm.spv ../Compute/Gemm.slang
+
+# 3. Build runtime harness
+clang++ harness.cpp -o harness -lduckdb -lvulkan \
+  -I/path/to/duckdb/include -I/path/to/vulkan/include
+
+# 4. Run one GEMM test
+./harness weights/layerdiff3d/unet/down_blocks_0_attentions_0_to_q.weight.parquet \
+  gemm.spv 320 160 64
+```
+
+The weights (`sh*tagaki-lab/see-through` HF repos) are ~5-7GB f16 models — the `tools/download-models.py` script fetches and converts them automatically.

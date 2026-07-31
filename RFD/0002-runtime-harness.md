@@ -13,7 +13,7 @@ The runtime harness is a C++ program that:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                 Runtime Harness                  │
+│                 Runtime Harness                 │
 │  (C++, Vulkan, DuckDB C API)                    │
 │                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
@@ -25,7 +25,7 @@ The runtime harness is a C++ program that:
 │       │             │                │          │
 │       ▼             ▼                ▼          │
 │  ┌──────────────────────────────────────────┐   │
-│  │           Vulkan Compute Engine           │   │
+│  │           Vulkan Compute Engine          │   │
 │  │  - VkBuffer upload (weights)             │   │
 │  │  - VkDescriptorSet binding               │   │
 │  │  - VkCmdDispatch (pipeline order)        │   │
