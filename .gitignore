@@ -1,0 +1,27 @@
+# See-through-verify gitignore
+
+# Build artifacts
+.lake/
+.lake/build/
+*.olean
+*.olean.hash
+*.ilean
+*.ilean.hash
+*.trace
+*.c.o
+*.setup.json
+
+# Generated weight files
+weights/
+*.bin
+*.gguf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
