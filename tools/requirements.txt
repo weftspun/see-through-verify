@@ -1,0 +1,3 @@
+# See-through weight conversion tools
+huggingface_hub>=0.26.0
+pyarrow>=14.0.0
