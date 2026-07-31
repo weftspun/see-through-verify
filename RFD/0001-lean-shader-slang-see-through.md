@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Author:** fire  
 **Date:** 2026-07-31  
-**License:** Apache 2.0  
+**License:** Apache 2.0
 
 ---
 
@@ -74,20 +74,20 @@ CREATE TABLE tensor AS SELECT * FROM read_parquet('weights/layerdiff-unet/conv_i
 
 ## Compute Shader Modules
 
-| Shader | Role | Status |
-|--------|------|--------|
-| GEMM | C[M,N] = A[M,K] × B[K,N] — foundation for all linears, convs, attention | Emitted, verified non-empty |
-| Direct conv2d | out[oc,oh,ow] = Σ_c Σ_kh Σ_kw in[c,oh·s+kh,ow·s+kw] × w[c,oc,kh,kw] | Emitted, not yet verified |
-| im2col + GEMM | Strided conv via im2col → GEMM | Future |
-| Flash attention | QK^T softmax PV with tiling | Future |
-| Layer norm / Group norm | Normalization for transformer blocks | Future |
+| Shader                  | Role                                                                    | Status                      |
+| ----------------------- | ----------------------------------------------------------------------- | --------------------------- |
+| GEMM                    | C[M,N] = A[M,K] × B[K,N] — foundation for all linears, convs, attention | Emitted, verified non-empty |
+| Direct conv2d           | out[oc,oh,ow] = Σ_c Σ_kh Σ_kw in[c,oh·s+kh,ow·s+kw] × w[c,oc,kh,kw]     | Emitted, not yet verified   |
+| im2col + GEMM           | Strided conv via im2col → GEMM                                          | Future                      |
+| Flash attention         | QK^T softmax PV with tiling                                             | Future                      |
+| Layer norm / Group norm | Normalization for transformer blocks                                    | Future                      |
 
 ## GPU Dispatch
 
 The runtime flow:
 
-1. **Compile time** (Lean): `Compute/Gemm.lean` → `LeanSlang.emit` → `.slang` source  
-2. **Build time** (slangc): `slangc -target spirv -o gemm.spv gemm.slang`  
+1. **Compile time** (Lean): `Compute/Gemm.lean` → `LeanSlang.emit` → `.slang` source
+2. **Build time** (slangc): `slangc -target spirv -o gemm.spv gemm.slang`
 3. **Launch time** (C++/Rust harness):  
    a. lean-duckdb reads Parquet weight files → float buffers in host memory  
    b. Vulkan `vkCreateBuffer` + `vkCmdCopy` uploads weights to GPU  
