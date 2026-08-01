@@ -11,12 +11,13 @@
 [[vk::binding(5, 0)]] uint HW;
 [[vk::binding(6, 0)]] uint N_GROUPS;
 [[vk::binding(7, 0)]] float EPS;
+[[vk::binding(8, 0)]] uint FCOUNT;
 
 [shader("compute")] [numthreads(8, 8, 1)]
 void groupnorm_kern(uint3 dtid : SV_DispatchThreadID) {
     uint n = dtid.x;
     uint c = dtid.y;
-    if (c >= C) return;
+    if (c >= C || n >= FCOUNT) return;
     uint cpg = (C + N_GROUPS - 1) / N_GROUPS;
     uint gstart = (c / cpg) * cpg;
     uint gend = min(gstart + cpg, C);

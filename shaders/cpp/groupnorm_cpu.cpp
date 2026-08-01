@@ -4282,7 +4282,7 @@ using namespace SLANG_PRELUDE_NAMESPACE;
 #endif
 
 
-#line 38 "shaders/groupnorm.slang"
+#line 39 "shaders/groupnorm.slang"
 struct GlobalParams_0
 {
     StructuredBuffer<float> X_in_0;
@@ -4293,190 +4293,212 @@ struct GlobalParams_0
     uint32_t HW_0;
     uint32_t N_GROUPS_0;
     float EPS_0;
+    uint32_t FCOUNT_0;
 };
 
 
-#line 38
+#line 39
 struct KernelContext_0
 {
     GlobalParams_0* globalParams_0;
 };
 
 
-#line 16
+#line 17
 void _groupnorm_kern(void* _S1, void* entryPointParams_0, void* globalParams_1)
 {
 
-#line 16
+#line 17
     uint32_t p_0;
 
-#line 16
+#line 17
     ComputeThreadVaryingInput * _S2 = (slang_bit_cast<ComputeThreadVaryingInput *>(_S1));
 
-#line 16
+#line 17
     KernelContext_0 kernelContext_0;
 
-#line 16
+#line 17
     (&kernelContext_0)->globalParams_0 = (slang_bit_cast<GlobalParams_0*>(globalParams_1));
 
-#line 16
+#line 17
     Vector<uint32_t, 3>  _S3 = _S2->groupID * Vector<uint32_t, 3> (8U, 8U, 1U) + _S2->groupThreadID;
-    uint32_t _S4 = _S3.x;
+    uint32_t n_0 = _S3.x;
     uint32_t c_0 = _S3.y;
+
+#line 19
+    bool _S4;
     if(c_0 >= ((slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0))
     {
 
-#line 19
-        return;
+#line 20
+        _S4 = true;
+
+#line 20
+    }
+    else
+    {
+
+#line 20
+        _S4 = n_0 >= ((&kernelContext_0)->globalParams_0->FCOUNT_0);
+
+#line 20
     }
 
 #line 20
+    if(_S4)
+    {
+
+#line 20
+        return;
+    }
+
+#line 21
     uint32_t cpg_0 = ((slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 + (&kernelContext_0)->globalParams_0->N_GROUPS_0 - 1U) / (&kernelContext_0)->globalParams_0->N_GROUPS_0;
     uint32_t _S5 = c_0 / cpg_0;
 
-#line 21
+#line 22
     uint32_t gstart_0 = _S5 * cpg_0;
     uint32_t _S6 = (U32_min((gstart_0 + cpg_0), ((slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0)));
     uint32_t nch_0 = _S6 - gstart_0;
 
-#line 23
+#line 24
     uint32_t cc_0 = gstart_0;
 
-#line 23
+#line 24
     float mean_0 = 0.0f;
 
     for(;;)
     {
 
-#line 25
+#line 26
         if(cc_0 < _S6)
         {
         }
         else
         {
 
-#line 25
+#line 26
             break;
         }
 
-#line 25
+#line 26
         p_0 = 0U;
         for(;;)
         {
 
-#line 26
+#line 27
             if(p_0 < ((&kernelContext_0)->globalParams_0->HW_0))
             {
             }
             else
             {
 
-#line 26
+#line 27
                 break;
             }
 
-#line 27
-            float mean_1 = mean_0 + (&kernelContext_0)->globalParams_0->X_in_0.Load(_S4 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + cc_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0);
+#line 28
+            float mean_1 = mean_0 + (&kernelContext_0)->globalParams_0->X_in_0.Load(n_0 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + cc_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0);
 
-#line 26
+#line 27
             p_0 = p_0 + 1U;
 
-#line 26
+#line 27
             mean_0 = mean_1;
 
-#line 26
+#line 27
         }
 
-#line 25
+#line 26
         cc_0 = cc_0 + 1U;
 
-#line 25
+#line 26
     }
 
 
     float _S7 = mean_0 / float(nch_0 * (&kernelContext_0)->globalParams_0->HW_0);
 
-#line 28
+#line 29
     cc_0 = gstart_0;
 
-#line 28
+#line 29
     float var_0 = 0.0f;
 
     for(;;)
     {
 
-#line 30
+#line 31
         if(cc_0 < _S6)
         {
         }
         else
         {
 
-#line 30
+#line 31
             break;
         }
 
-#line 30
+#line 31
         p_0 = 0U;
         for(;;)
         {
 
-#line 31
+#line 32
             if(p_0 < ((&kernelContext_0)->globalParams_0->HW_0))
             {
             }
             else
             {
 
-#line 31
+#line 32
                 break;
             }
 
-#line 32
-            float q_0 = (&kernelContext_0)->globalParams_0->X_in_0.Load(_S4 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + cc_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0) - _S7;
+#line 33
+            float q_0 = (&kernelContext_0)->globalParams_0->X_in_0.Load(n_0 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + cc_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0) - _S7;
             float var_1 = var_0 + q_0 * q_0;
 
-#line 31
+#line 32
             p_0 = p_0 + 1U;
 
-#line 31
+#line 32
             var_0 = var_1;
 
-#line 31
+#line 32
         }
 
-#line 30
+#line 31
         cc_0 = cc_0 + 1U;
 
-#line 30
+#line 31
     }
 
-#line 36
+#line 37
     float _S8 = 1.0f / (F32_sqrt((var_0 / float(nch_0 * (&kernelContext_0)->globalParams_0->HW_0) + (&kernelContext_0)->globalParams_0->EPS_0)));
 
-#line 36
+#line 37
     p_0 = 0U;
     for(;;)
     {
 
-#line 37
+#line 38
         if(p_0 < ((&kernelContext_0)->globalParams_0->HW_0))
         {
         }
         else
         {
 
-#line 37
+#line 38
             break;
         }
 
-#line 38
-        *(&((&kernelContext_0)->globalParams_0->Y_out_0)[_S4 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + c_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0]) = ((&kernelContext_0)->globalParams_0->X_in_0.Load(_S4 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + c_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0) - _S7) * _S8 * (&kernelContext_0)->globalParams_0->G_in_0.Load(c_0) + (&kernelContext_0)->globalParams_0->B_in_0.Load(c_0);
+#line 39
+        *(&((&kernelContext_0)->globalParams_0->Y_out_0)[n_0 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + c_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0]) = ((&kernelContext_0)->globalParams_0->X_in_0.Load(n_0 * (slang_bit_cast<GlobalParams_0*>(globalParams_1))->C_0 * (&kernelContext_0)->globalParams_0->HW_0 + c_0 * (&kernelContext_0)->globalParams_0->HW_0 + p_0) - _S7) * _S8 * (&kernelContext_0)->globalParams_0->G_in_0.Load(c_0) + (&kernelContext_0)->globalParams_0->B_in_0.Load(c_0);
 
-#line 37
+#line 38
         p_0 = p_0 + 1U;
 
-#line 37
+#line 38
     }
 
     return;
