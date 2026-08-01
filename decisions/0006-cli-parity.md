@@ -5,7 +5,8 @@
 **Date:** 2026-08-01
 **License:** Apache 2.0
 
-See the companion PERT diagram: `decisions/0007-cli-parity-pert.svg`.
+See the companion PERT diagram (Mermaid source, renders natively on GitHub):
+`decisions/0007-cli-parity.mmd`.
 
 ## Problem
 

@@ -12,4 +12,4 @@ diffusion pipeline.
 | 0004 | CLI packaging (fpm) | Draft |
 | 0005 | GUI with ThorVG + GLFW + Vulkan | Draft |
 | 0006 | CLI parity critical path (PERT) | Published |
-| 0007 | CLI parity PERT diagram | Published |
+| 0007 | CLI parity PERT diagram (Mermaid) | Published |
