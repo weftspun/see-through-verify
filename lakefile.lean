@@ -27,5 +27,8 @@ lean_exe quant_design where
   root := `QuantDesign
   moreLinkArgs := seethroughCLib
 
+lean_exe pipeline_gate where
+  root := `PipelineGate
+
 lean_exe emit_shaders where
   root := `EmitShaders
