@@ -41,8 +41,9 @@ static void layer_norm(const float *x, float *y, const float *g, const float *bb
     }
 }
 static void quick_gelu(float *x, int n) {
+    // CLIP-L quick_gelu: x * sigmoid(1.702x)
     for (int i = 0; i < n; i++)
-        x[i] = x[i] * 0.5f * (1.0f + tanhf(0.7978845608f * (x[i] + 0.044715f*x[i]*x[i]*x[i])));
+        x[i] = x[i] / (1.0f + expf(-1.702f * x[i]));
 }
 static void softmax_rows(float *x, int T) {
     for (int i = 0; i < T; i++) {
@@ -65,12 +66,18 @@ int main(int argc, char **argv) {
         for (auto &t : tensors) if (t.name.find(suffix) != std::string::npos) return &t;
         return nullptr;
     };
+    // Load a weight and transpose [R,C] -> [C,R] so run_gemm(x, Wt, out, T, R, C) gives x @ W^T
     auto load_w = [&](std::string suffix, int &rows, int &cols) -> std::vector<float> {
         auto *t = find(suffix);
         if (!t) { fprintf(stderr, "missing: %s\n", suffix.c_str()); exit(1); }
         rows = (int)t->shape[0]; cols = (int)t->shape[1];
         auto raw = load_tensor_data(sf_path, ds, t->offset, t->size);
-        return bf16_to_f32(raw, (size_t)rows * cols);
+        auto w = bf16_to_f32(raw, (size_t)rows * cols);
+        std::vector<float> wt((size_t)rows * cols);   // transposed [C,R]
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++)
+                wt[(size_t)c * rows + r] = w[(size_t)r * cols + c];
+        return wt;
     };
     auto load_b = [&](std::string suffix, int &n) -> std::vector<float> {
         auto *t = find(suffix);
@@ -128,7 +135,8 @@ int main(int argc, char **argv) {
                     float s = 0;
                     for (int d = 0; d < hd; d++)
                         s += Q[i*D+hd_*hd+d] * K[j*D+hd_*hd+d];
-                    scores[i*T+j] = s / sqrtf((float)hd);
+                    // causal: token j attends only to j' <= j (ggml_diag_mask_inf)
+                    scores[i*T+j] = (j > i) ? -1e30f : s / sqrtf((float)hd);
                 }
             softmax_rows(scores.data(), T);
             for (int i = 0; i < T; i++)
