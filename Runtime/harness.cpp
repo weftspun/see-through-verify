@@ -8,47 +8,23 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <fstream>
+#include <dlfcn.h>
 
 // ---------------------------------------------------------------------------
-// Parquet loader via DuckDB C API
+// Raw binary tensor loader (replaces DuckDB Parquet loader)
 // ---------------------------------------------------------------------------
 
-// DuckDB C API is header-only — include duckdb.h from lean-duckdb vendor
-#include "duckdb.h"
-
-static std::vector<float> load_parquet(const char * path, size_t * out_n) {
-    duckdb_database db;
-    duckdb_connection con;
-    if (duckdb_open(NULL, &db) == DuckDBError) {
-        fprintf(stderr, "duckdb_open failed\n");
-        exit(1);
-    }
-    if (duckdb_connect(db, &con) == DuckDBError) {
-        fprintf(stderr, "duckdb_connect failed\n");
-        exit(1);
-    }
-
-    char sql[4096];
-    snprintf(sql, sizeof(sql),
-        "SELECT val FROM read_parquet('%s') ORDER BY idx", path);
-
-    duckdb_result result;
-    if (duckdb_query(con, sql, &result) == DuckDBError) {
-        fprintf(stderr, "duckdb_query failed for %s\n", path);
-        fprintf(stderr, "error: %s\n", duckdb_result_error(&result));
-        exit(1);
-    }
-
-    idx_t n = duckdb_row_count(&result);
-    std::vector<float> data(n);
-    for (idx_t i = 0; i < n; i++) {
-        data[i] = (float) duckdb_value_double(&result, i, 0);
-    }
-
-    *out_n = n;
-    duckdb_destroy_result(&result);
-    duckdb_disconnect(&con);
-    duckdb_close(&db);
+static std::vector<float> load_binary(const char * path, size_t * out_n) {
+    FILE * f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "failed to open %s\n", path); exit(1); }
+    fseek(f, 0, SEEK_END);
+    size_t size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::vector<float> data(size / 4);
+    if (fread(data.data(), 1, size, f) != size) { fprintf(stderr, "short read %s\n", path); exit(1); }
+    fclose(f);
+    *out_n = data.size();
     return data;
 }
 
@@ -71,11 +47,18 @@ static std::vector<uint32_t> load_spirv(const char * path) {
 }
 
 // ---------------------------------------------------------------------------
-// Vulkan compute dispatch
+// Vulkan compute dispatch (function pointers loaded dynamically via vkGetProcAddr)
 // ---------------------------------------------------------------------------
 
 #define VK_NO_PROTOTYPES
 #include "vulkan/vulkan.h"
+
+static PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+static PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr;
+
+#define LOAD_GLOBAL(name) name = (PFN_##name)vkGetInstanceProcAddr(NULL, #name)
+#define LOAD_INSTANCE(name) name = (PFN_##name)vkGetInstanceProcAddr(g_vk, #name)
+#define LOAD_DEVICE(name) name = (PFN_##name)vkGetDeviceProcAddr(g_dev, #name)
 
 static VkInstance g_vk;
 static VkDevice g_dev;
@@ -84,18 +67,81 @@ static VkCommandPool g_pool;
 static VkCommandBuffer g_cmd;
 static uint32_t g_queue_family;
 
+// Declare function pointers
+#define VK_FUNC(name) static PFN_##name name = nullptr;
+VK_FUNC(vkCreateInstance)
+VK_FUNC(vkDestroyInstance)
+VK_FUNC(vkEnumeratePhysicalDevices)
+VK_FUNC(vkGetPhysicalDeviceQueueFamilyProperties)
+VK_FUNC(vkCreateDevice)
+VK_FUNC(vkDestroyDevice)
+VK_FUNC(vkGetDeviceQueue)
+VK_FUNC(vkDeviceWaitIdle)
+VK_FUNC(vkCreateCommandPool)
+VK_FUNC(vkDestroyCommandPool)
+VK_FUNC(vkAllocateCommandBuffers)
+VK_FUNC(vkBeginCommandBuffer)
+VK_FUNC(vkEndCommandBuffer)
+VK_FUNC(vkQueueSubmit)
+VK_FUNC(vkCmdBindPipeline)
+VK_FUNC(vkCmdDispatch)
+VK_FUNC(vkCreateShaderModule)
+VK_FUNC(vkDestroyShaderModule)
+VK_FUNC(vkCreateComputePipelines)
+VK_FUNC(vkDestroyPipeline)
+VK_FUNC(vkCreateBuffer)
+VK_FUNC(vkDestroyBuffer)
+VK_FUNC(vkGetBufferMemoryRequirements)
+VK_FUNC(vkAllocateMemory)
+VK_FUNC(vkFreeMemory)
+VK_FUNC(vkBindBufferMemory)
+VK_FUNC(vkMapMemory)
+VK_FUNC(vkUnmapMemory)
+VK_FUNC(vkCreatePipelineLayout)
+VK_FUNC(vkDestroyPipelineLayout)
+#undef VK_FUNC
+
 static void vk_init() {
-    // Create instance
+    printf("vk_init: loading libvulkan...\n"); fflush(stdout);
+    // Dynamically load the Vulkan loader
+    void *lib = dlopen("/opt/homebrew/lib/libvulkan.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) { fprintf(stderr, "failed to load libvulkan.dylib\n"); exit(1); }
+    printf("vk_init: loading function pointers...\n"); fflush(stdout);
+    vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
+    if (!vkGetInstanceProcAddr) { fprintf(stderr, "vkGetInstanceProcAddr not found\n"); exit(1); }
+    vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(lib, "vkGetDeviceProcAddr");
+    printf("vk_init: loading global functions...\n"); fflush(stdout);
+    LOAD_GLOBAL(vkCreateInstance);
+    LOAD_GLOBAL(vkEnumeratePhysicalDevices);
+    printf("vk_init: vkCreateInstance=%p\n", (void*)vkCreateInstance); fflush(stdout);
+
+    // Create instance (with MoltenVK portability on macOS)
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     app.pApplicationName = "see-through";
     app.apiVersion = VK_API_VERSION_1_3;
 
-    const char * ext[] = {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME};
+    const char * ext[] = {
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+        "VK_KHR_portability_enumeration"
+    };
     VkInstanceCreateInfo ici = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
-    ici.enabledExtensionCount = 1;
+    ici.enabledExtensionCount = 2;
     ici.ppEnabledExtensionNames = ext;
-    if (vkCreateInstance(&ici, NULL, &g_vk) != VK_SUCCESS) exit(1);
+    ici.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    printf("vk_init: calling vkCreateInstance...\n"); fflush(stdout);
+    VkResult res = vkCreateInstance(&ici, NULL, &g_vk);
+    printf("vk_init: vkCreateInstance returned %d (g_vk=%p)\n", res, (void*)g_vk); fflush(stdout);
+    if (res != VK_SUCCESS) exit(1);
+
+    // Load instance-level functions
+    LOAD_INSTANCE(vkDestroyInstance);
+    LOAD_INSTANCE(vkEnumeratePhysicalDevices);
+    printf("vk_init: LOAD_INSTANCE done\n"); fflush(stdout);
+    LOAD_INSTANCE(vkGetPhysicalDeviceQueueFamilyProperties);
+    LOAD_INSTANCE(vkCreateDevice);
+    LOAD_INSTANCE(vkDestroyDevice);
+    LOAD_INSTANCE(vkDeviceWaitIdle);
 
     // Pick first GPU
     uint32_t n = 0;
@@ -131,7 +177,35 @@ static void vk_init() {
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &dq;
+    const char *dev_exts[] = {"VK_KHR_portability_subset"};
+    dci.enabledExtensionCount = 1;
+    dci.ppEnabledExtensionNames = dev_exts;
     if (vkCreateDevice(pdev, &dci, NULL, &g_dev) != VK_SUCCESS) exit(1);
+
+    // Load device-level functions
+    LOAD_DEVICE(vkGetDeviceQueue);
+    LOAD_DEVICE(vkCreateCommandPool);
+    LOAD_DEVICE(vkDestroyCommandPool);
+    LOAD_DEVICE(vkAllocateCommandBuffers);
+    LOAD_DEVICE(vkBeginCommandBuffer);
+    LOAD_DEVICE(vkEndCommandBuffer);
+    LOAD_DEVICE(vkQueueSubmit);
+    LOAD_DEVICE(vkCmdBindPipeline);
+    LOAD_DEVICE(vkCmdDispatch);
+    LOAD_DEVICE(vkCreateShaderModule);
+    LOAD_DEVICE(vkDestroyShaderModule);
+    LOAD_DEVICE(vkCreateComputePipelines);
+    LOAD_DEVICE(vkDestroyPipeline);
+    LOAD_DEVICE(vkCreateBuffer);
+    LOAD_DEVICE(vkDestroyBuffer);
+    LOAD_DEVICE(vkGetBufferMemoryRequirements);
+    LOAD_DEVICE(vkAllocateMemory);
+    LOAD_DEVICE(vkFreeMemory);
+    LOAD_DEVICE(vkBindBufferMemory);
+    LOAD_DEVICE(vkMapMemory);
+    LOAD_DEVICE(vkUnmapMemory);
+    LOAD_DEVICE(vkCreatePipelineLayout);
+    LOAD_DEVICE(vkDestroyPipelineLayout);
 
     vkGetDeviceQueue(g_dev, g_queue_family, 0, &g_queue);
 
@@ -159,18 +233,20 @@ static void vk_shutdown() {
 
 int main(int argc, char ** argv) {
     if (argc < 6) {
-        fprintf(stderr, "usage: %s <weights.parquet> <shader.spv> <M> <N> <K>\n", argv[0]);
+        fprintf(stderr, "usage: %s <a.bin> <b.bin> <shader.spv> <M> <N> <K>\n", argv[0]);
         return 1;
     }
 
-    const char * parquet_path = argv[1];
-    const char * spv_path = argv[2];
-    int M = atoi(argv[3]), N = atoi(argv[4]), K = atoi(argv[5]);
+    const char * a_path = argv[1];
+    const char * b_path = argv[2];
+    const char * spv_path = argv[3];
+    int M = atoi(argv[4]), N = atoi(argv[5]), K = atoi(argv[6]);
 
-    // Load weights
-    size_t n_weights = 0;
-    auto weights = load_parquet(parquet_path, &n_weights);
-    printf("weights: %zu floats from %s\n", n_weights, parquet_path);
+    // Load input tensors
+    size_t n_a = 0, n_b = 0;
+    auto a_data = load_binary(a_path, &n_a);
+    auto b_data = load_binary(b_path, &n_b);
+    printf("A: %zu floats, B: %zu floats\n", n_a, n_b);
 
     // Load shader
     auto spv = load_spirv(spv_path);
@@ -208,9 +284,13 @@ int main(int argc, char ** argv) {
     create_buffer(c_size, c_buf, c_mem);
 
     // Upload weights
-    vkMapMemory(g_dev, a_mem, 0, a_size, 0, (void**)&a_mem);
-    memcpy(a_mem, weights.data(), a_size);
+    void *mapped_a, *mapped_b;
+    vkMapMemory(g_dev, a_mem, 0, a_size, 0, &mapped_a);
+    memcpy(mapped_a, a_data.data(), a_size);
     vkUnmapMemory(g_dev, a_mem);
+    vkMapMemory(g_dev, b_mem, 0, b_size, 0, &mapped_b);
+    memcpy(mapped_b, b_data.data(), b_size);
+    vkUnmapMemory(g_dev, b_mem);
 
     // Create shader module
     VkShaderModuleCreateInfo sm = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
