@@ -76,11 +76,16 @@ CREATE TABLE tensor AS SELECT * FROM read_parquet('weights/layerdiff-unet/conv_i
 
 | Shader                  | Role                                                                    | Status                      |
 | ----------------------- | ----------------------------------------------------------------------- | --------------------------- |
-| GEMM                    | C[M,N] = A[M,K] × B[K,N] — foundation for all linears, convs, attention | Emitted, verified non-empty |
-| Direct conv2d           | out[oc,oh,ow] = Σ_c Σ_kh Σ_kw in[c,oh·s+kh,ow·s+kw] × w[c,oc,kh,kw]     | Emitted, not yet verified   |
-| im2col + GEMM           | Strided conv via im2col → GEMM                                          | Future                      |
-| Flash attention         | QK^T softmax PV with tiling                                             | Future                      |
-| Layer norm / Group norm | Normalization for transformer blocks                                    | Future                      |
+| GEMM                    | C[M,N] = A[M,K] × B[K,N] — foundation for all linears, convs, attention | ✅ GREEN (cos=1.0 vs ggml)   |
+| Direct conv2d           | out[oc,oh,ow] = Σ_c Σ_kh Σ_kw in[c,oh·s+kh,ow·s+kw] × w[c,oc,kh,kw]     | ✅ GREEN (cos=1.0 vs ggml)   |
+| MHA attention           | QK^T / sqrt(hd) softmax PV, per-head workspace                          | ✅ GREEN (cos=1.0 vs ggml)   |
+| LayerNorm / GroupNorm   | Normalization for transformer blocks & resnets                          | ✅ GREEN (cos=1.0 vs ggml)   |
+| GEGLU                   | LayerNorm GEGLU FFN (gate in 2nd half)                                  | ✅ GREEN (cos=0.999997)      |
+
+All kernels are authored in Slang and exported to C++ via
+`slangc -target cpp` (per-thread, no barriers), then validated against ggml
+oracle taps — no hand-coded C++. See `decisions/0006` for the critical-path
+plan.
 
 ## GPU Dispatch
 
