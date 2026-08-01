@@ -163,7 +163,7 @@ static SfHeader read_safetensors(const char *path) {
 // ---------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
-    std::string weights_dir = "hf_cache";
+    std::string weights_dir = "weights";
     std::string in_path, out_path = "out.psd";
     int steps = 30, res = 1280, depth_res = 768;
 
@@ -205,6 +205,12 @@ int main(int argc, char **argv) {
     // List all available model weights — search relative to cwd or SEE_THROUGH_DIR
     std::string base = weights_dir;
     if (const char *env = getenv("SEE_THROUGH_DIR")) base = env;
+
+    // Fallback: if weights/ doesn't exist, try hf_cache/
+    std::string check_path = base + "/layerdifforg_seethroughv0.0.2_layerdiff3d";
+    if (!std::filesystem::exists(check_path) && std::filesystem::exists("hf_cache")) {
+        base = "hf_cache";
+    }
 
     std::vector<std::pair<std::string,std::string>> model_files = {
         {"layerdiff3d text_encoder",       base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder/model.safetensors"},

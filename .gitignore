@@ -16,3 +16,4 @@ weights/
 # Package outputs
 *.pkg
 *.app
+*.tar
