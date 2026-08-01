@@ -17,3 +17,4 @@ weights/
 *.pkg
 *.app
 *.tar
+.DS_Store
