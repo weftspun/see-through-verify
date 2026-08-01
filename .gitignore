@@ -1,4 +1,6 @@
-# See-through-verify gitignore
+# Downloaded weight files (safetensors, original format)
+hf_cache/
+weights/
 
 # Build artifacts
 .lake/
@@ -11,16 +13,6 @@
 *.c.o
 *.setup.json
 
-# Downloaded weight files (safetensors, original format)
-hf_cache/
-weights/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Package outputs
+*.pkg
+*.app

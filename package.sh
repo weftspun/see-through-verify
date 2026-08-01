@@ -1,34 +1,60 @@
 #!/bin/bash
-# Package see-through CLI with fpm for macOS
-# Note: model weights (~13GB) are NOT bundled — they're downloaded separately
-# via `pixi run download-models` or `see-through --download-models`
+# Package see-through CLI as macOS .app bundle
 set -euo pipefail
 
-PKG_DIR="/tmp/see-through-pkg"
-BINDIR="$PKG_DIR/usr/local/bin"
-SHAREDIR="$PKG_DIR/usr/local/share/see-through"
+APP="/tmp/see-through.app"
+BUNDLE="$APP/Contents"
 
-rm -rf "$PKG_DIR"
-mkdir -p "$BINDIR" "$SHAREDIR"
+rm -rf "$APP"
+mkdir -p "$BUNDLE/MacOS" "$BUNDLE/Resources" "$BUNDLE/SharedSupport"
 
 echo "=== Building CLI ==="
-clang++ -std=c++17 Runtime/see-through.cpp -o "$BINDIR/see-through" -O2
+clang++ -std=c++17 Runtime/see-through.cpp -o "$BUNDLE/MacOS/see-through" -O2
 
-echo "=== Copying metadata ==="
-cp LICENSE "$SHAREDIR/" 2>/dev/null || true
-cp RFD/*.md "$SHAREDIR/" 2>/dev/null || true
+echo "=== Info.plist ==="
+cat > "$BUNDLE/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>see-through</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.weftspun.see-through</string>
+  <key>CFBundleName</key>
+  <string>See-Through</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+</dict>
+</plist>
+EOF
 
-echo "=== Packaging with fpm ==="
-fpm -s dir -t osxpkg \
-  --name "see-through" \
-  --version "0.1.0" \
-  --description "Single-image layer decomposition for anime characters" \
-  --license "Apache-2.0" \
-  --vendor "weftspun" \
-  --url "https://github.com/weftspun/see-through-verify" \
-  --after-install <(echo 'echo "Run: see-through --help"; echo "Weights: cd /usr/local/share/see-through && pixi run download-models"') \
-  -C "$PKG_DIR" \
-  .
+echo "=== Bundling weights ==="
+if [ -d hf_cache ] && [ "$(find hf_cache -name '*.safetensors' 2>/dev/null | wc -l)" -gt 0 ]; then
+  mkdir -p "$BUNDLE/SharedSupport/hf_cache"
+  cp -r hf_cache/* "$BUNDLE/SharedSupport/hf_cache/"
+  echo "  weights: $(du -sh "$BUNDLE/SharedSupport/hf_cache" | cut -f1)"
+else
+  echo "  no weights found"
+fi
 
-echo "=== Done ==="
-ls -lh *.pkg 2>/dev/null || echo "package created"
+echo "=== Setting environment ==="
+# Create a launcher script that sets SEE_THROUGH_DIR to the bundled weights
+cat > "$BUNDLE/MacOS/see-through-launcher" <<'LAUNCHER'
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")/../SharedSupport" && pwd)"
+export SEE_THROUGH_DIR="$DIR/hf_cache"
+exec "$(dirname "$0")/see-through" "$@"
+LAUNCHER
+chmod +x "$BUNDLE/MacOS/see-through-launcher"
+
+echo "=== Creating .app ==="
+cp -r "$APP" .
+echo "Done: $(du -sh see-through.app | cut -f1)"
