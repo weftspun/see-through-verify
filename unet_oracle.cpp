@@ -39,11 +39,13 @@ int main(int argc, char ** argv) {
                                            /*fine_taps_down0=*/true, /*fine_taps_mid=*/true);
     ggml_set_output(out);
     for (ggml_tensor * t : taps) ggml_set_output(t);
-    ggml_set_output(emb);   // the 1280-time-embed the resnets consume
+    ggml_set_output(emb);    // the 1280-time-embed the resnets consume
+    ggml_set_output(ehs2);   // the ehs (after group_embedding) the transformer attends to
 
     std::vector<ggml_tensor *> outs = { out };
     outs.insert(outs.end(), taps.begin(), taps.end());
     outs.push_back(emb);
+    outs.push_back(ehs2);
 
     // deterministic pseudo-random inputs
     std::vector<float> sdata((size_t)ZR*ZR*8*F), edata((size_t)2048*77*F),
@@ -89,6 +91,7 @@ int main(int argc, char ** argv) {
                                        "mid_resnet0.bin", "mid_attn.bin", "mid_resnet1.bin" };
     for (size_t i = 0; i < taps.size() && i < 8; i++) write_bin(tapnames[i], taps[i]);
     write_bin("emb.bin", emb);
-    printf("wrote %zu + 2 outputs to %s\n", taps.size()+1, argv[2]);
+    write_bin("ehs2.bin", ehs2);
+    printf("wrote %zu + 3 outputs to %s\n", taps.size()+1, argv[2]);
     return 0;
 }
