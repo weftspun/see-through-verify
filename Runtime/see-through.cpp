@@ -1,10 +1,9 @@
-// see-through CLI — Lean Slang shader implementation
+// see-through CLI — safetensors native runtime
 //
-//   see-through -i in.png -o out.psd [--steps N] [--res N] ...
+//   see-through -i in.png -o out.psd [--steps N] [--res N]
+//   see-through --demo <safetensors_path>
 //
-// Replicates the weftspun/see-through-cpp CLI interface using the
-// new Lean + Slang + DuckDB pipeline. Falls back to ggml for stages
-// not yet Slang-native.
+// Reads model weights directly from safetensors files (BF16, no widening).
 
 #include <cstdio>
 #include <cstdlib>
@@ -12,163 +11,220 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <fstream>
-
-// ---------------------------------------------------------------------------
-// DuckDB Parquet loader + Vulkan dispatch (from the runtime harness)
-// ---------------------------------------------------------------------------
-// This is a self-contained CLI; in production the harness would be a shared
-// library. For now, inline the critical bits.
-// See Runtime/harness.cpp for the full implementation.
-
 #include <cstdint>
 
-// DuckDB C API forward declarations — link with -lduckdb
-typedef struct duckdb_database *duckdb_database;
-typedef struct duckdb_connection *duckdb_connection;
-typedef struct duckdb_result duckdb_result;
-typedef uint64_t idx_t;
-#define DuckDBError 1
-#define DuckDBSuccess 0
-
-extern "C" {
-    int duckdb_open(const char *path, duckdb_database *out);
-    void duckdb_close(duckdb_database *db);
-    int duckdb_connect(duckdb_database db, duckdb_connection *out);
-    void duckdb_disconnect(duckdb_connection *con);
-    int duckdb_query(duckdb_connection con, const char *query, duckdb_result *out);
-    idx_t duckdb_row_count(duckdb_result *res);
-    double duckdb_value_double(duckdb_result *res, idx_t row, idx_t col);
-    const char *duckdb_result_error(duckdb_result *res);
-    void duckdb_destroy_result(duckdb_result *res);
-}
-
-static std::vector<float> load_parquet(const char *path, size_t *out_n) {
-    duckdb_database db;
-    duckdb_connection con;
-    if (duckdb_open(NULL, &db) != DuckDBSuccess) {
-        fprintf(stderr, "duckdb_open failed\n");
-        exit(1);
-    }
-    if (duckdb_connect(db, &con) != DuckDBSuccess) {
-        fprintf(stderr, "duckdb_connect failed\n");
-        exit(1);
-    }
-    char sql[4096];
-    snprintf(sql, sizeof(sql),
-        "SELECT val FROM read_parquet('%s') ORDER BY idx", path);
-    duckdb_result result;
-    if (duckdb_query(con, sql, &result) != DuckDBSuccess) {
-        fprintf(stderr, "duckdb_query failed for %s: %s\n",
-                path, duckdb_result_error(&result));
-        exit(1);
-    }
-    idx_t n = duckdb_row_count(&result);
-    std::vector<float> data(n);
-    for (idx_t i = 0; i < n; i++) {
-        data[i] = (float) duckdb_value_double(&result, i, 0);
-    }
-    *out_n = n;
-    duckdb_destroy_result(&result);
-    duckdb_disconnect(&con);
-    duckdb_close(&db);
-    return data;
-}
-
 // ---------------------------------------------------------------------------
-// Pipeline configuration (matches see-through-cpp/src/pipeline.h)
+// Safetensors reader
 // ---------------------------------------------------------------------------
 
-struct PipelineConfig {
-    std::string weights_dir = "weights";
-    int steps = 30;
-    int res = 1280;
-    int depth_res = 768;
-    int depth_steps = 4;
-    uint64_t seed = 42;
-    int threads = 8;
-    bool verbose = false;
-    std::string device = "auto";
-    std::string spans_path;
+struct SfTensor {
+    std::string name;
+    std::string dtype;
+    std::vector<int64_t> shape;
+    size_t offset;
+    size_t size;
 };
 
-// ---------------------------------------------------------------------------
-// Demo: load a Parquet weight file and print tensor info
-// ---------------------------------------------------------------------------
+struct SfHeader {
+    std::vector<SfTensor> tensors;
+    size_t data_start;
+};
 
-static void demo_load_weight(const std::string & path) {
-    size_t n = 0;
-    auto data = load_parquet(path.c_str(), &n);
-    printf("  %s: %zu floats\n", path.c_str(), n);
-    if (n > 0) {
-        float min = data[0], max = data[0], sum = 0;
-        for (size_t i = 0; i < n; i++) {
-            if (data[i] < min) min = data[i];
-            if (data[i] > max) max = data[i];
-            sum += data[i];
-        }
-        printf("    range [%.4f, %.4f] mean=%.4f\n", min, max, sum / n);
+// Simple JSON parser for safetensors header format.
+// The header is a flat object: {"name": {"dtype":"..","shape":[...],"data_offsets":[s,e]}, ...}
+static std::string json_str(const std::string &s, size_t &i) {
+    std::string out;
+    i++; // skip opening quote
+    while (i < s.size() && s[i] != '"') {
+        if (s[i] == '\\') { i++; if (i < s.size()) out += s[i]; }
+        else out += s[i];
+        i++;
     }
+    i++; // skip closing quote
+    return out;
+}
+
+static SfHeader read_safetensors(const char *path) {
+    SfHeader hdr;
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "error: can't open %s\n", path); exit(1); }
+
+    uint8_t hdr_len_buf[8];
+    if (fread(hdr_len_buf, 1, 8, f) != 8) { fprintf(stderr, "error: short read %s\n", path); exit(1); }
+    uint64_t hdr_len = 0;
+    for (int j = 0; j < 8; j++) hdr_len |= (uint64_t)hdr_len_buf[j] << (j * 8);
+
+    std::string json((size_t)hdr_len, '\0');
+    if (fread(&json[0], 1, hdr_len, f) != hdr_len) { fprintf(stderr, "error: short header %s\n", path); exit(1); }
+    hdr.data_start = 8 + hdr_len;
+    fclose(f);
+
+    size_t i = 0;
+    while (i < json.size()) {
+        // Skip whitespace and commas
+        while (i < json.size() && (json[i] == ' ' || json[i] == '\n' || json[i] == '\t' || json[i] == '\r' || json[i] == ',')) i++;
+        if (i >= json.size() || json[i] == '}') break;
+        if (json[i] != '"') { i++; continue; }
+
+        // Read tensor name
+        size_t ks = i;
+        std::string name = json_str(json, i);
+
+        // Skip __metadata__
+        if (name == "__metadata__") {
+            // Skip to end of value
+            while (i < json.size() && json[i] != '{' && json[i] != '}' && json[i] != ',') i++;
+            if (i < json.size() && json[i] == '{') {
+                int depth = 1; i++;
+                while (i < json.size() && depth > 0) {
+                    if (json[i] == '{') depth++;
+                    if (json[i] == '}') depth--;
+                    i++;
+                }
+            }
+            continue;
+        }
+
+        // Skip colon
+        while (i < json.size() && json[i] != ':') i++;
+        i++;
+
+        // Expect value object
+        while (i < json.size() && json[i] == ' ') i++;
+        if (i >= json.size() || json[i] != '{') continue;
+
+        i++; // skip {
+        SfTensor t;
+        t.name = name;
+        t.offset = 0;
+        t.size = 0;
+
+        while (i < json.size() && json[i] != '}') {
+            // Skip whitespace/comma
+            while (i < json.size() && (json[i] == ' ' || json[i] == '\n' || json[i] == '\t' || json[i] == ',')) i++;
+            if (i >= json.size() || json[i] == '}') break;
+
+            if (json[i] != '"') { i++; continue; }
+            std::string field = json_str(json, i);
+
+            // Skip colon
+            while (i < json.size() && json[i] != ':') i++;
+            i++;
+
+            if (field == "dtype") {
+                t.dtype = json_str(json, i);
+            } else if (field == "shape") {
+                t.shape.clear();
+                if (json[i] == '[') {
+                    i++;
+                    while (i < json.size() && json[i] != ']') {
+                        while (i < json.size() && (json[i] == ' ' || json[i] == ',')) i++;
+                        if (i < json.size() && json[i] >= '0' && json[i] <= '9') {
+                            char *end;
+                            t.shape.push_back(strtol(&json[i], &end, 10));
+                            i = end - &json[0];
+                        }
+                    }
+                    i++; // skip ]
+                }
+            } else if (field == "data_offsets") {
+                if (json[i] == '[') {
+                    i++;
+                    int idx = 0;
+                    uint64_t vals[2] = {0, 0};
+                    while (i < json.size() && json[i] != ']') {
+                        while (i < json.size() && (json[i] == ' ' || json[i] == ',')) i++;
+                        if (i < json.size() && json[i] >= '0' && json[i] <= '9') {
+                            char *end;
+                            vals[idx++] = strtoull(&json[i], &end, 10);
+                            i = end - &json[0];
+                        }
+                    }
+                    i++; // skip ]
+                    t.offset = (size_t)vals[0];
+                    t.size = (size_t)(vals[1] - vals[0]);
+                }
+            } else {
+                // Skip unknown field value
+                if (json[i] == '"') json_str(json, i);
+                else if (json[i] == '[') { int d = 1; i++; while (i < json.size() && d > 0) { if (json[i] == '[') d++; if (json[i] == ']') d--; i++; } }
+                else if (json[i] == '{') { int d = 1; i++; while (i < json.size() && d > 0) { if (json[i] == '{') d++; if (json[i] == '}') d--; i++; } }
+            }
+        }
+        i++; // skip }
+        hdr.tensors.push_back(t);
+    }
+
+    return hdr;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-int main(int argc, char ** argv) {
-    PipelineConfig cfg;
+int main(int argc, char **argv) {
+    std::string weights_dir = "hf_cache";
     std::string in_path, out_path = "out.psd";
+    int steps = 30, res = 1280, depth_res = 768;
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() { return std::string(argv[++i]); };
-        if (a == "-i") { in_path = next(); }
-        else if (a == "-o") { out_path = next(); }
-        else if (a == "--seed") { cfg.seed = std::stoull(next()); }
-        else if (a == "--steps") { cfg.steps = std::stoi(next()); }
-        else if (a == "--res") { cfg.res = std::stoi(next()); }
-        else if (a == "--depth-res") { cfg.depth_res = std::stoi(next()); }
-        else if (a == "--threads") { cfg.threads = std::stoi(next()); }
-        else if (a == "--device") { cfg.device = next(); }
-        else if (a == "--verbose") { cfg.verbose = true; }
-        else if (a == "--demo-weights") {
-            std::string dir = next();
-            printf("Demo: loading weights from %s\n", dir.c_str());
-            for (auto & e : std::filesystem::recursive_directory_iterator(dir)) {
-                if (e.path().extension() == ".parquet") {
-                    demo_load_weight(e.path().string());
+        if (a == "-i") in_path = next();
+        else if (a == "-o") out_path = next();
+        else if (a == "--steps") steps = std::stoi(next());
+        else if (a == "--res") res = std::stoi(next());
+        else if (a == "--depth-res") depth_res = std::stoi(next());
+        else if (a == "--demo") {
+            std::string sf_path = next();
+            auto hdr = read_safetensors(sf_path.c_str());
+            printf("Safetensors: %zu tensors\n", hdr.tensors.size());
+            for (const auto &t : hdr.tensors) {
+                printf("  %s %s [", t.name.c_str(), t.dtype.c_str());
+                for (size_t d = 0; d < t.shape.size(); d++) {
+                    if (d) printf("x");
+                    printf("%lld", (long long)t.shape[d]);
                 }
+                printf("] (%zu bytes)\n", t.size);
             }
             return 0;
         }
-        else { fprintf(stderr, "unknown arg %s\n", a.c_str()); return 1; }
+        else { fprintf(stderr, "usage: see-through -i in.png -o out.psd [--steps N] [--res N]\n"); return 1; }
     }
 
     if (in_path.empty()) {
-        fprintf(stderr, "usage: see-through -i in.png -o out.psd [--steps N] "
-                        "[--res N] [--depth-res N] [--threads N] [--device auto]\n");
-        fprintf(stderr, "       see-through --demo-weights <dir>\n");
+        fprintf(stderr, "usage: see-through -i in.png -o out.psd [--steps N] [--res N]\n");
+        fprintf(stderr, "       see-through --demo <safetensors_path>\n");
         return 1;
     }
 
     printf("input: %s\n", in_path.c_str());
     printf("output: %s\n", out_path.c_str());
-    printf("steps: %d, res: %d, depth_res: %d\n", cfg.steps, cfg.res, cfg.depth_res);
+    printf("steps: %d, res: %d\n", steps, res);
 
-    // Weight demo
-    std::string weights_path = cfg.weights_dir + "/layerdiff3d/unet";
-    if (std::filesystem::exists(weights_path)) {
-        printf("Weights found: %s\n", weights_path.c_str());
-        for (auto & e : std::filesystem::recursive_directory_iterator(weights_path)) {
-            if (e.path().extension() == ".parquet") {
-                demo_load_weight(e.path().string());
-            }
+    // List all available model weights
+    std::vector<std::pair<std::string,std::string>> model_files = {
+        {"layerdiff3d text_encoder", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder/model.safetensors"},
+        {"layerdiff3d text_encoder_2", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder_2/model.safetensors"},
+        {"layerdiff3d unet", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/unet/diffusion_pytorch_model.safetensors"},
+        {"layerdiff3d vae", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/vae/diffusion_pytorch_model.safetensors"},
+        {"layerdiff3d trans_vae", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/trans_vae/diffusion_pytorch_model.safetensors"},
+        {"marigold text_encoder", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/text_encoder/model.safetensors"},
+        {"marigold unet", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/unet/diffusion_pytorch_model.safetensors"},
+        {"marigold vae", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/vae/diffusion_pytorch_model.safetensors"},
+    };
+
+    for (const auto &[label, path] : model_files) {
+        if (std::filesystem::exists(path)) {
+            auto hdr = read_safetensors(path.c_str());
+            printf("\n%s (%s): %zu tensors\n", label.c_str(), path.c_str(), hdr.tensors.size());
+            size_t total_bytes = 0;
+            for (const auto &t : hdr.tensors) total_bytes += t.size;
+            printf("  total: %zu MB\n", total_bytes / 1024 / 1024);
+        } else {
+            printf("\n%s: not found at %s\n", label.c_str(), path.c_str());
         }
-    } else {
-        printf("No weights found at %s — run \"pixi run download-models\" first\n",
-               weights_path.c_str());
     }
 
-    printf("\nRun with --demo-weights to verify weight loading.\n");
     return 0;
 }
