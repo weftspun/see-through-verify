@@ -226,6 +226,81 @@ int main(int argc, char **argv) {
     printf("mine[0..7]=%.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", mine[0],mine[1],mine[2],mine[3],mine[4],mine[5],mine[6],mine[7]);
     printf("ora [0..7]=%.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", ref[0],ref[1],ref[2],ref[3],ref[4],ref[5],ref[6],ref[7]);
     printf("resnet.0 (%dx%dx%dx%d): max_abs_diff=%.6f mean=%.6f cosine=%.6f\n", W,H,C,F, max_abs, sum_abs/cnt, cos_sim);
-    printf("%s\n", max_abs < 2e-2 && cos_sim > 0.999 ? "VALIDATION PASS — resnet+groupnorm matches ggml oracle (16-bit weight rounding)" : "VALIDATION FAIL");
-    return (max_abs < 2e-2 && cos_sim > 0.999) ? 0 : 1;
+    bool pass = max_abs < 2e-2 && cos_sim > 0.999;
+    int rc2 = 0;
+
+    // ---- Downsampler: stride-2 pad-1 k3 conv on the resnet output -> down0.bin
+    std::string ds_pre = "down_blocks.0.downsamplers.0.conv";
+    if (find(ds_pre+".weight")) {
+        // down_block.0 = resnets.0 -> resnets.1 -> downsampler (no attention)
+        // apply resnets.1 to `mine` (the resnets.0 output) first
+        std::string r1 = "down_blocks.0.resnets.1";
+        auto r1n1g = load_w(r1+".norm1.weight"), r1n1b = load_w(r1+".norm1.bias");
+        auto r1c1w = load_w(r1+".conv1.weight"), r1c1b = load_w(r1+".conv1.bias");
+        auto r1tpw = load_w(r1+".time_emb_proj.weight"), r1tpb = load_w(r1+".time_emb_proj.bias");
+        auto r1n2g = load_w(r1+".norm2.weight"), r1n2b = load_w(r1+".norm2.bias");
+        auto r1c2w = load_w(r1+".conv2.weight"), r1c2b = load_w(r1+".conv2.bias");
+        std::vector<float> r1in = mine;   // resnet.1 input = resnet.0 output
+        // norm1 + silu + conv1
+        std::vector<float> hh((size_t)W*H*C*F);
+        group_norm_affine(r1in.data(), hh.data(), r1n1g.data(), r1n1b.data(), W,H,C,F, 32, 1e-5f);
+        silu_inplace(hh.data(), hh.size());
+        std::vector<float> hh1((size_t)W*H*C*F);
+        conv2d_3x3(hh.data(), r1c1w.data(), r1c1b.data(), hh1.data(), W,H,C,oc1,F);
+        // + time_emb_proj(silu(emb))
+        std::vector<float> r1te((size_t)1280, 0.f);
+        for (int o=0;o<1280;o++){ float s=r1tpb[o]; for(int k=0;k<1280;k++) s+=r1tpw[(size_t)o*1280+k]*temb_s[k]; r1te[o]=s; }
+        for (int n=0;n<F;n++) for (int c=0;c<C;c++) for (int hm=0;hm<H;hm++) for (int wm=0;wm<W;wm++)
+            hh1[(size_t)n*W*H*C + (size_t)c*W*H + (size_t)hm*W + wm] += r1te[c];
+        // norm2 + silu + conv2
+        std::vector<float> hh2((size_t)W*H*C*F);
+        group_norm_affine(hh1.data(), hh2.data(), r1n2g.data(), r1n2b.data(), W,H,C,F, 32, 1e-5f);
+        silu_inplace(hh2.data(), hh2.size());
+        std::vector<float> hh3((size_t)W*H*C*F);
+        conv2d_3x3(hh2.data(), r1c2w.data(), r1c2b.data(), hh3.data(), W,H,C,oc1,F);
+        // shortcut: no conv_shortcut in resnet.1 (skip=identity)
+        std::vector<float> mine1((size_t)W*H*C*F);
+        for (size_t i=0;i<mine1.size();i++) mine1[i] = hh3[i] + r1in[i];
+        mine = mine1;
+
+        auto dsw = load_w(ds_pre+".weight"), dsb = load_w(ds_pre+".bias");
+        int dOC = 320; // input==output channels
+        int oW2 = W/2, oH2 = H/2;
+        // stride-2 conv: out[n,oc,oh,ow] = bias + SUM_c SUM_kh SUM_kw x[n,c,oh*2-1+kh, ow*2-1+kw]*w
+        std::vector<float> down((size_t)oH2*oW2*dOC*F, 0.f);
+        for (int n=0;n<F;n++)
+          for (int oc=0;oc<dOC;oc++)
+            for (int oh=0;oh<oH2;oh++)
+              for (int ow=0;ow<oW2;ow++) {
+                float s = dsb[oc];
+                for (int c=0;c<320;c++)
+                  for (int kh=0;kh<3;kh++)
+                    for (int kw=0;kw<3;kw++) {
+                      int ih = oh*2 - 1 + kh, iw = ow*2 - 1 + kw;
+                      if (ih<0 || ih>=H || iw<0 || iw>=W) continue;
+                      float wv = dsw[((oc*320 + c)*3 + kh)*3 + kw];
+                      float xv = mine[(size_t)n*W*H*320 + (size_t)c*W*H + (size_t)ih*W + iw];
+                      s += wv*xv;
+                    }
+                down[(size_t)n*oH2*oW2*dOC + (size_t)oc*oH2*oW2 + (size_t)oh*oW2 + ow] = s;
+              }
+        int dw,dh,dc,df;
+        auto dref = read_oracle("down0.bin", dw,dh,dc,df);
+        printf("downsampled [%dx%dx%dx%d] vs oracle [%dx%dx%dx%d]\n", oW2,oH2,dOC,F, dw,dh,dc,df);
+        double dmax=0, dsum=0, dmaxv=0; size_t dcnt=down.size();
+        for (size_t i=0;i<dcnt;i++){ double dd=fabs((double)down[i]-(double)dref[i]); if(dd>dmax)dmax=dd; dsum+=dd; double v=fabs((double)dref[i]); if(v>dmaxv)dmaxv=v; }
+        double dcos=0, dna=0, dnb=0;
+        for (size_t i=0;i<dcnt;i++){ dcos+=(double)down[i]*dref[i]; dna+=(double)down[i]*down[i]; dnb+=(double)dref[i]*dref[i]; }
+        dcos /= sqrt(dna*dnb);
+        printf("down0 (downsampled resnet.1): max_abs_diff=%.6f (max|ref|=%.3f) mean=%.6f cosine=%.6f\n",
+               dmax, dmaxv, dsum/dcnt, dcos);
+        bool dp = (dmax < 0.1 && dcos > 0.999);   // CLIP-compare convention (16-bit weight rounding)
+        printf("%s\n", dp ? "down_block.0 GREEN — resnet.0+resnet.1+downsample matches ggml oracle"
+                          : "down_block.0 FAIL");
+        if (!dp) rc2 = 1;
+    } else {
+        printf("down_block.0 has no downsampler (skip)\n");
+    }
+    printf("%s\n", (pass && rc2==0) ? "VALIDATION PASS — resnet+groupnorm matches ggml oracle (16-bit weight rounding)" : "VALIDATION FAIL");
+    return (pass && rc2==0) ? 0 : 1;
 }
