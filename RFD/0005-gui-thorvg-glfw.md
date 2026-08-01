@@ -1,0 +1,75 @@
+# RFD 5 — GUI with ThorVG + GLFW + Vulkan
+
+**Status:** Draft  
+**Author:** fire  
+**Date:** 2026-07-31  
+
+## Problem
+
+The see-through CLI works but requires terminal usage. A native GUI would
+make the tool accessible to artists and non-technical users.
+
+## Proposal
+
+Build a native macOS GUI using ThorVG (drawing) + GLFW (window/input) +
+Vulkan (GPU compute backend). The GUI shows:
+
+- Input image preview
+- Layer list with thumbnails
+- Progress bar during pipeline execution
+- Output PSD preview
+
+## Stack
+
+| Component | Role | Why |
+|-----------|------|-----|
+| GLFW | Window creation, keyboard/mouse input | Cross-platform, lightweight, pure C |
+| ThorVG | Canvas drawing, scene graph, SVG/Lottie | GPU-accelerated, no UI framework bloat |
+| Vulkan | GPU compute (Slang SPIR-V dispatch) | Shared with the existing runtime |
+| Slang | Compute shader compilation | Shared with the existing pipeline |
+
+## Window layout
+
+```
+┌──────────────────────────────────────────────────┐
+│  See-Through v0.1.0                        ─ □ X │
+├──────────────────────┬───────────────────────────┤
+│                      │                           │
+│   Input Preview      │   Layer List              │
+│   (drag-drop image)  │   ┌─ hair          ────── │
+│                      │   ├─ face          ────── │
+│                      │   ├─ topwear       ────── │
+│                      │   ├─ bottomwear    ────── │
+│                      │   └─ ...                  │
+│                      │                           │
+├──────────────────────┴───────────────────────────┤
+│  [Open Image]  [Run]  [Save PSD]  ████████░░ 60% │
+└──────────────────────────────────────────────────┘
+```
+
+## Implementation
+
+```
+gui/
+├── main.cpp          # GLFW window + event loop
+├── canvas.cpp        # ThorVG rendering (preview, layers, UI)
+├── canvas.h
+├── pipeline.cpp      # Pipeline dispatch (background thread)
+├── pipeline.h
+└── assets/           # Icons, fonts
+```
+
+## Build
+
+```bash
+brew install glfw thorvg
+clang++ -std=c++17 gui/main.cpp gui/canvas.cpp gui/pipeline.cpp \
+  -o see-through-gui -lglfw -lthorvg -lvulkan
+```
+
+## Next steps
+
+1. Set up GLFW window with Vulkan context
+2. Integrate ThorVG canvas for the UI layout
+3. Wire the pipeline dispatch (background thread, progress updates)
+4. Package as .app bundle
