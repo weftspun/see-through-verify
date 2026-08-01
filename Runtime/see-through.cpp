@@ -202,16 +202,19 @@ int main(int argc, char **argv) {
     printf("output: %s\n", out_path.c_str());
     printf("steps: %d, res: %d\n", steps, res);
 
-    // List all available model weights
+    // List all available model weights — search relative to cwd or SEE_THROUGH_DIR
+    std::string base = weights_dir;
+    if (const char *env = getenv("SEE_THROUGH_DIR")) base = env;
+
     std::vector<std::pair<std::string,std::string>> model_files = {
-        {"layerdiff3d text_encoder", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder/model.safetensors"},
-        {"layerdiff3d text_encoder_2", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder_2/model.safetensors"},
-        {"layerdiff3d unet", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/unet/diffusion_pytorch_model.safetensors"},
-        {"layerdiff3d vae", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/vae/diffusion_pytorch_model.safetensors"},
-        {"layerdiff3d trans_vae", weights_dir + "/layerdifforg_seethroughv0.0.2_layerdiff3d/trans_vae/diffusion_pytorch_model.safetensors"},
-        {"marigold text_encoder", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/text_encoder/model.safetensors"},
-        {"marigold unet", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/unet/diffusion_pytorch_model.safetensors"},
-        {"marigold vae", weights_dir + "/24yearsold_seethroughv0.0.1_marigold/vae/diffusion_pytorch_model.safetensors"},
+        {"layerdiff3d text_encoder",       base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder/model.safetensors"},
+        {"layerdiff3d text_encoder_2",     base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/text_encoder_2/model.safetensors"},
+        {"layerdiff3d unet",               base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/unet/diffusion_pytorch_model.safetensors"},
+        {"layerdiff3d vae",                base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/vae/diffusion_pytorch_model.safetensors"},
+        {"layerdiff3d trans_vae",          base + "/layerdifforg_seethroughv0.0.2_layerdiff3d/trans_vae/diffusion_pytorch_model.safetensors"},
+        {"marigold text_encoder",          base + "/24yearsold_seethroughv0.0.1_marigold/text_encoder/model.safetensors"},
+        {"marigold unet",                  base + "/24yearsold_seethroughv0.0.1_marigold/unet/diffusion_pytorch_model.safetensors"},
+        {"marigold vae",                   base + "/24yearsold_seethroughv0.0.1_marigold/vae/diffusion_pytorch_model.safetensors"},
     };
 
     for (const auto &[label, path] : model_files) {
