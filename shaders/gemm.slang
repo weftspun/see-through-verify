@@ -1,5 +1,5 @@
-groupshared float sA[1024];
-groupshared float sB[1024];
+groupshared half sA[128];
+groupshared half sB[128];
 
 [[vk::binding(0, 0)]]
 StructuredBuffer<float> A;
@@ -14,23 +14,28 @@ uint N;
 [[vk::binding(5, 0)]]
 uint K;
 
-[shader("compute")] [numthreads(32, 32, 1)]
-void gemm(uint3 dtid : SV_DispatchThreadID) {
+[shader("compute")] [numthreads(16, 16, 1)]
+void gemm(uint3 dtid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID, uint sgtg : SV_GroupID) {
   uint row = dtid[0u];
   uint col = dtid[1u];
-  uint tx = (row % 32u);
-  uint ty = (col % 32u);
-  float sum = 0.000000;
-  uint numTiles = ((K + 31u) / 32u);
+  uint tx = gtid[0u];
+  uint ty = gtid[1u];
+  uint laneId = (((tx / 8u) * 8u) + (ty / 8u));
+  uint laneInSG = (((tx % 8u) * 8u) + (ty % 8u));
+  simdgroup_half8x8 mAcc;
+  simdgroup_half8x8 mA;
+  simdgroup_half8x8 mB;
+  simdgroup_load(mAcc, 0.000000, 0u);
+  uint numTiles = ((K + 7u) / 8u);
   for (uint kkTile = 0u; kkTile < numTiles; ++kkTile) {
-    uint kk = (kkTile * 32u);
-    sA[((tx * 32u) + ty)] = A[((row * K) + (kk + ty))];
-    sB[((tx * 32u) + ty)] = B[(((kk + tx) * N) + col)];
+    uint kk = (kkTile * 8u);
+    sA[((tx * 8u) + ty)] = half(A[((row * K) + (kk + ty))]);
+    sB[((tx * 16u) + ty)] = half(B[(((kk + tx) * N) + col)]);
     GroupMemoryBarrierWithGroupSync();
-    for (uint k = 0u; k < 32u; ++k) {
-      sum = (sum + (sA[((tx * 32u) + k)] * sB[((k * 32u) + ty)]));
-    }
+    mA[laneInSG] = sA[laneInSG];
+    mB[laneInSG] = sB[laneInSG];
+    simdgroup_multiply_accumulate(mAcc, mA, mB, mAcc);
     GroupMemoryBarrierWithGroupSync();
   }
-  C[(row + (col * N))] = sum;
+  C[(row + (col * N))] = mAcc[laneInSG];
 }
