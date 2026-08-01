@@ -11,10 +11,9 @@
 *.c.o
 *.setup.json
 
-# Generated weight files
+# Downloaded weight files (safetensors, original format)
+hf_cache/
 weights/
-*.bin
-*.gguf
 
 # OS files
 .DS_Store
