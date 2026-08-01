@@ -35,12 +35,15 @@ int main(int argc, char ** argv) {
     emb = ggml_add(ctx, emb, sdxl_add_embed(m, aug, tids));
 
     std::vector<ggml_tensor *> taps;
-    ggml_tensor * out = unet_frame_forward(m, sample, emb, ehs2, &taps);
+    ggml_tensor * out = unet_frame_forward(m, sample, emb, ehs2, &taps,
+                                           /*fine_taps_down0=*/true, /*fine_taps_mid=*/true);
     ggml_set_output(out);
     for (ggml_tensor * t : taps) ggml_set_output(t);
+    ggml_set_output(emb);   // the 1280-time-embed the resnets consume
 
     std::vector<ggml_tensor *> outs = { out };
     outs.insert(outs.end(), taps.begin(), taps.end());
+    outs.push_back(emb);
 
     // deterministic pseudo-random inputs
     std::vector<float> sdata((size_t)ZR*ZR*8*F), edata((size_t)2048*77*F),
@@ -78,8 +81,14 @@ int main(int argc, char ** argv) {
     };
 
     write_bin("out.bin", out);
-    static const char * tapnames[] = { "conv_in.bin", "down0.bin", "down1.bin", "down2.bin", "mid_resnet0.bin", "mid_attn.bin", "mid_resnet1.bin" };
-    for (size_t i = 0; i < taps.size() && i < 7; i++) write_bin(tapnames[i], taps[i]);
-    printf("wrote %zu + 1 outputs to %s\n", taps.size()+1, argv[2]);
+    // with fine taps enabled the order is:
+    // conv_in, down0.resnet0, down0(post-downsample), down1, down2,
+    // mid.resnet0, mid.attn, mid.resnet1
+    static const char * tapnames[] = { "conv_in.bin", "down0_resnet0.bin", "down0.bin",
+                                       "down1.bin", "down2.bin",
+                                       "mid_resnet0.bin", "mid_attn.bin", "mid_resnet1.bin" };
+    for (size_t i = 0; i < taps.size() && i < 8; i++) write_bin(tapnames[i], taps[i]);
+    write_bin("emb.bin", emb);
+    printf("wrote %zu + 2 outputs to %s\n", taps.size()+1, argv[2]);
     return 0;
 }

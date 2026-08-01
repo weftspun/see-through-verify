@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
             case 7: { int32_t v; fread(&v,4,1,f); } break;
             case 11: { int64_t v; fread(&v,8,1,f); } break;
             case 10: { uint32_t n=rd_u32(f); for(uint32_t j=0;j<n;j++){uint32_t v;fread(&v,4,1,f);} } break;
-            default: { fprintf(stderr, "unknown kv type %u at key %s\n", ty, key.c_str()); return 1; }
+            default: { } // skip unknown kv type
         }
     }
     // tensor info
