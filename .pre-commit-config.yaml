@@ -1,0 +1,21 @@
+# Enforce ASD-STE100 Simplified Technical English on see-through-verify's
+# prose (docs, markdown, .txt/.rst) using the ste-enforcer gate. Requires
+# `prek` (or pre-commit) on PATH and a checkout of the ste-enforcer repo with
+# its trained ONNX models restored.
+#
+# The gate tooling (gate.py + runtime/ + onnx models) lives in the
+# ste-enforcer repo, whose models are gitignored and not vendored here. CI
+# checks it out and exports STE_GATE_DIR (see .github/workflows/ste-gate.yml).
+# For local runs, `export STE_GATE_DIR=<path to a tropes-removal-model checkout>`
+# before `prek run --all-files`; the hook falls back to a sibling checkout at
+# ../tropes-removal-model (relative to this repo's root, which is the hook's cwd).
+repos:
+  - repo: local
+    hooks:
+      - id: ste-gate
+        name: STE gate (ASD-STE100 Simplified Technical English enforcer)
+        entry: bash -c 'gate_dir="${STE_GATE_DIR:-$(pwd)/../tropes-removal-model}"; cd "$gate_dir" && exec python gate.py "$@"' --
+        language: system
+        types_or: [markdown, text]
+        pass_filenames: true
+        exclude: ^(README\.md|CLAUDE\.md)$

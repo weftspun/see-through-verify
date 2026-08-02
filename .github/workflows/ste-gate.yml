@@ -1,0 +1,56 @@
+name: ste-gate
+
+# Enforce the ASD-STE100 Simplified Technical English gate on this repo's prose
+# via the ste-enforcer gate (https://github.com/weftspun/tropes-removal-model),
+# driven through prek (a pre-commit-compatible runner). Mirrors ste-enforcer's
+# own ste-gate.yml: restores the trained ONNX models from the ste-enforcer
+# GitHub Release, installs runtime deps, then runs `prek run --all-files` so
+# every markdown/text file is scored against the merged regex+SetFit detector.
+#
+# `prek run` only gates staged/PR files by default; `--all-files` runs the gate
+# over the whole tree on every PR touching prose paths. Set --show-diff-on-failure
+# so findings are inlined into the workflow log.
+
+on:
+  pull_request:
+    paths: ["**/*.md", "**/*.mdx", "**/*.txt", "**/*.rst"]
+
+permissions:
+  contents: read
+
+jobs:
+  prek:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      # The gate tooling (gate.py + runtime/ + models) lives in the ste-enforcer
+      # repo, not here. Check it out at a pinned ref so the hook has a stable
+      # gate to run against.
+      - name: Checkout ste-enforcer gate
+        uses: actions/checkout@v4
+        with:
+          repository: weftspun/tropes-removal-model
+          ref: main
+          path: .ste-enforcer
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Restore trained ONNX models from ste-enforcer release
+        working-directory: .ste-enforcer
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download --pattern "model.tar.zst" -D . || { echo "no release model found -- build and publish one first (see ste-enforcer CLAUDE.md)"; exit 1; }
+          pip install zstandard
+          python zst.py -d model.tar.zst model.tar
+          tar -xf model.tar
+
+      - name: Install runtime deps + prek
+        run: pip install onnxruntime onnxruntime-extensions optimum transformers pyarrow "numpy<2" prek
+
+      - name: Run STE gate (prek run --all-files)
+        env: { STE_GATE_DIR: "${{ github.workspace }}/.ste-enforcer" }
+        run: |
+          prek run --all-files --show-diff-on-failure --color always
