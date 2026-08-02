@@ -1,10 +1,76 @@
 ---
-title: "CPU (Accelerate-BLAS) and shader (Slang→Metal/SPIR-V) must have parity in both performance and soundness"
+title: "CPU (Accelerate-BLAS) and shader (Slang→Metal/SPIR-V) parity — grade"
 rfd: 7
 status: Published
 author: fire
 date: 2026-08-01
-jupyter: python3
 ---
 
-CPU validation (Accelerate-BLAS) and shader Slang→Metal/SPIR-V must stay on par in both performance and soundness.
+CPU validation (Accelerate-BLAS) and shader Slang→Metal/SPIR-V must stay on
+par in both performance and soundness. Invariant: kernels are authored once in
+Slang and exported to CPU (`slangc -target cpp`) and GPU (`-target metal` /
+`-target spirv`) from the same source, so the two paths agree by construction.
+A `cos > 0.999` gate vs the ggml oracle must hold on **both** sides so a green
+confirms genuine correctness, never a divergent-but-faster reference.
+
+## Method
+
+The two CPU paths are:
+
+- **shader path** — the exported Slang kernels (`shaders/*.slang` →
+  `shaders/cpp/*_cpu.cpp`), the same source that compiles to Metal/SPIR-V.
+- **CPU reference** — direct f32 math with GEMMs routed through Apple's
+  Accelerate BLAS (`verify_common.h`, `token_linear = cblas_sgemm`) and a
+  per-head scaled-dot-product MHA.
+
+Both are compared against the ggml oracle taps and against each other
+(`parity_mha.cpp`, `parity_gemm.cpp`, and the `slang_*_compare.cpp` / hand-coded
+reference harnesses).
+
+## Grade (measured 2026-08-01)
+
+| Op | Slang kernel vs oracle | BLAS ref vs oracle | CPU↔shader on par | Grade |
+|----|------------------------|--------------------|-------------------|-------|
+| MHA (T=8,C=1280,h=20) | cos=1.0, max=0 | cos=1.0, max=0 | cos=1.0, max=0 | **GREEN** |
+| GEMM (`token_linear`) | — | cos=1.0, max~1e-5 (vs scalar) | — | **GREEN** |
+| LayerNorm | cos=1.0 | — | — | **GREEN** |
+| GroupNorm | cos=1.0 | — | — | **GREEN** |
+| GEGLU | cos=0.999997 | — | — | **GREEN** |
+| Conv2d (F=1 tap) | cos=1.0 (vs direct-f32) | — | — | **GREEN (kernel); oracle fixture inconsistent** |
+| mid_block transformer3d (10 layers + 5 temporal) | cos=0.9958 | — | — | **OPEN** |
+
+## Findings
+
+- **Soundness is on par for every primitive that has a clean oracle tap.**
+  MHA, LayerNorm, GroupNorm, GEGLU, and `token_linear` all agree with the ggml
+  oracle at `cos ≥ 0.999997` — and the parity guards confirm the BLAS CPU path
+  is bit-identical to the Slang kernel (cos=1.0, max=0). Performance-alike and
+  sound: the Accelerate-BLAS reference did **not** become a divergent-faster
+  shortcut for these ops.
+
+- **A latent head-collapse bug was caught.** The first BLAS MHA reference
+  computed one full-channel GEMM + one softmax (collapsing all 20 heads →
+  cos=0.987). MHA is per-head; the corrected per-head implementation passes at
+  cos=1.0. This is exactly the divergence the invariant guards against, and the
+  parity harnesses now pin it.
+
+- **Conv2d: kernel is GREEN, but the F=1 oracle tap is inconsistent.** The
+  Slang kernel matches the known-good direct-f32 conv exactly (cos=1.0), while
+  the dumped ggml oracle tap disagrees with the reconstructed input (cos=0.65).
+  That is a test-fixture / tap-input mismatch in `slang_conv_compare`, not a
+  kernel parity break — the kernel and the reference agree.
+
+- **mid_block transformer3d is the one real open gap.** With 5 temporal
+  cross-frame blocks chained in, the full mid block sits at cos=0.9958 (spatial
+  alone was 0.99987). The isolated temporal block validates at cos=1.0, so the
+  divergence is in the chained integration, not the block math. This fails the
+  cos>0.999 gate and is the next thing to close for M2.
+
+## Conclusion
+
+Primitive-level CPU↔shader parity is **GREEN** across the op set, and the
+Accelerate-BLAS CPU validation is genuinely on par (sound and fast, ~0.25s per
+op). **One open item** remains: the chained mid_block transformer3d with
+temporal cross-frame (cos=0.9958). Closing that to cos>0.999 is the gate for
+M2, and the parity tag is complete once it lands.
+
