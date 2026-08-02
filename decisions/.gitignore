@@ -3,3 +3,6 @@
 _book/
 **/*_files/
 .quarto/
+
+/.quarto/
+**/*.quarto_ipynb
