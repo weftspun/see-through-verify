@@ -23,7 +23,7 @@ red=critical path, amber=optional.
   "useMaxWidth": true,
   "htmlLabels": true
 }} }%%
-flowchart LR
+flowchart TB
     %% Foundation (done)
     subgraph Foundation["FOUNDATION — 4/4"]
         G0[GEMM shader<br/>Slang→Metal ✓]:::done
