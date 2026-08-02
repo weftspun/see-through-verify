@@ -59,9 +59,8 @@ reinterpret based on metadata.
 All kernels are authored in Slang and exported to C++ via `slangc -target cpp`
 (per-thread, no barriers), then validated against ggml oracle taps — no
 hand-coded C++. Live verification status (which kernels are GREEN) is tracked
-in [RFD 0006](0006-cli-parity.qmd); the critical-path plan is [RFD
-0006](0006-cli-parity.qmd) and its PERT diagram is [RFD
-0007](0007-cli-parity.qmd).
+in [RFD 0006](0006-cli-parity.qmd); the critical-path plan and its PERT diagram
+are both in [RFD 0006](0006-cli-parity.qmd).
 
 ## GPU dispatch
 

@@ -20,7 +20,6 @@ book:
       chapters:
         - 0003-e2e-test-instructions.qmd
         - 0006-cli-parity.qmd
-        - 0007-cli-parity.qmd
 
 format:
   html:
