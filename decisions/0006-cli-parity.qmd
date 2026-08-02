@@ -4,41 +4,41 @@ rfd: 6
 status: Published
 author: fire
 date: 2026-08-01
+jupyter: python3
 ---
 
 ## Problem
 
 `see-through-verify` reimplements the `weftspun/see-through-cpp` diffusion
 pipeline (anime illustration → layered PSD). To reach CLI parity — the same
-image-format flags and byte-identical reference PSD — the pipeline must be
-wired model-by-model along a single critical path. A PERT plan maps the
-dependencies so each milestone produces a working artifact before the next
-begins (Gall's Law).
+image-format flags and byte-identical reference PSD — the pipeline wires
+model-by-model along a single critical path. A PERT plan maps the dependencies
+so each milestone produces a working artifact before the next begins (Gall's
+Law).
 
 ## Critical path
 
-The governing sequence is **A → E → F → G → H**:
+The governing sequence is **A → E → F → G → H**. The status table and the
+PERT diagram below both come from one source, `decisions/cli_parity.py`, which
+holds the node data once — the table and diagram cannot drift apart.
 
-| Node | Work | Status |
-|------|------|--------|
-| A | CLIP text encoder (12× GEMM + attn + norm) | GREEN — bit-for-bit encoder match vs ggml (cos=1.0) |
-| B | LayerDiff UNet body (3-level, transformer blocks) | In progress — all primitives GREEN |
-| C | Marigold depth UNet (2-level) | Pending |
-| D | VAE decoders (trans-vae, sd-vae, marigold-vae) | Pending |
-| E | Dispatch runner (graph → sequence of shader dispatches) | GREEN |
-| F | DDIM scheduler (30-step loop, 2 UNet passes) | GREEN |
-| G | Layer postprocess (depth reordering → bbox → PSD) | Partial — CLIP validated |
-| H | PSD writer (reuse psd_sdk) | Pending |
-| I | Full CLI flags (50+, `--steps --res --split-depth --device`) | Pending |
+```{python}
+#| echo: false
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path.cwd() / "decisions"))
+import cli_parity
+from IPython.display import Markdown, display
+display(Markdown(cli_parity.status_table_markdown()))
+```
 
-Each model's layers are a sequence of GEMM + attention + norm + activation
+Each model's layers form a sequence of GEMM + attention + norm + activation
 dispatches. The dispatch runner reads weight bindings from
 `Compute/Model.lean` descriptors.
 
 ## Milestones
 
-- **M1 — CLIP encode only**: GEMM + attention validation. Done.
-- **M2 — one UNet diffusion step on GPU**: the next gate; validated when a
+- **M1 — CLIP encode only**: GEMM + attention validation.
+- **M2 — one UNet diffusion step on GPU**: the next gate; M2 validates when a
   single step's output matches the ggml oracle.
 - **CLI PARITY**: full pipeline output matching the reference PSD.
 
@@ -48,75 +48,21 @@ dispatches. The dispatch runner reads weight bindings from
 
 ## PERT diagram
 
-```{mermaid}
-%%{init: {"theme": "base", "themeVariables": {
-  "background": "#16213e",
-  "fontFamily": "SF Mono, Menlo, Monaco, monospace"
-}, "flowchart": {
-  "curve": "basis",
-  "nodeSpacing": 18,
-  "rankSpacing": 28,
-  "wrappingWidth": 90,
-  "useMaxWidth": true,
-  "htmlLabels": true
-}} }%%
-flowchart TB
-    %% Foundation (done)
-    subgraph Foundation["FOUNDATION — 4/4"]
-        G0[GEMM shader<br/>Slang→Metal ✓]:::done
-        V0[Vulkan compute<br/>max_err=0.0 ✓]:::done
-        W0[Weight loader<br/>safetensors→BF16 ✓]:::done
-        C0[CLI interface<br/>--demo ✓]:::done
-    end
-
-    %% Shader coverage — parallel
-    A[<b>A · CLIP</b><br/>12× GEMM+attn+norm<br/>1.5GB]:::onpath
-    B[<b>B · UNet body</b><br/>3-level + transformer<br/>2452 · 7.6GB]:::onpath
-    C[<b>C · Marigold</b><br/>2-level depth<br/>990 · 2.3GB]:::onpath
-    D[<b>D · VAE</b><br/>trans/sd/marigold<br/>1052]:::offpath
-
-    Foundation --> A
-    Foundation --> B
-    Foundation --> C
-    Foundation --> D
-
-    %% Critical path
-    E[<b>E · Dispatch</b><br/>graph → dispatch]:::flow
-    F[<b>F · Scheduler</b><br/>DDIM 30×2]:::flow
-    G[<b>G · Postprocess</b><br/>depth→bbox→PSD]:::flow
-    H[<b>H · PSD writer</b><br/>psd_sdk]:::flow
-    I[<b>I · CLI flags</b><br/>50+]:::offpath
-
-    A --> E
-    B --> E
-    C --> E
-    D -. optional .-> E
-
-    E --> F --> G
-    G --> H
-    G -.-> I
-
-    %% Milestones
-    M1([<b>M1 · CLIP</b><br/>encode · DONE]):::done
-    M2([<b>M2 · UNet</b><br/>one step]):::flow
-    P([<b>CLI PARITY</b><br/>≈ ref PSD]):::flow
-
-    E --> M1
-    G --> M2
-    H --> P
-    I --> P
-
-    classDef done fill:#00470f,stroke:#00b000,color:#00ed64
-    classDef onpath fill:#68111f,stroke:#ff0017,color:#ff6d86
-    classDef flow fill:#68111f,stroke:#ff0017,color:#ff6d86
-    classDef offpath fill:#532f00,stroke:#dc4e00,color:#ffb000
+```{python}
+#| echo: false
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path.cwd() / "decisions"))
+import cli_parity
+from IPython.display import Markdown, display
+display(Markdown("```{mermaid}\n" + cli_parity.mermaid_source() + "\n```"))
 ```
 
-## Next steps
+## Open items
 
-1. Compose the Slang UNet forward (down/mid/up, resnet + time-embed,
-   transformer3d, temporal cross-frame) from the exported kernels → M2 GREEN.
-2. Wire Marigold + VAE decode + postprocess → PSD output → CLI parity.
+The Slang UNet forward (down/mid/up, resnet + time-embed, transformer3d,
+temporal cross-frame) is not composed from the exported kernels yet, so M2
+stays unvalidated. Marigold, VAE decode, postprocess, and PSD output remain
+unwired, and CLI parity is not reached.
 
 See also: [RFD 1](0001-lean-shader-slang-see-through.qmd) (pipeline
 architecture), [RFD 2](0002-runtime-harness.qmd) (runtime harness).

@@ -8,13 +8,13 @@ date: 2026-07-31
 
 ## Problem
 
-The see-through CLI works but requires terminal usage. A native GUI would
-make the tool accessible to artists and non-technical users.
+The see-through CLI works but requires terminal usage. A native GUI makes
+the tool accessible to artists and non-technical users.
 
 ## Proposal
 
-Build a native macOS GUI using ThorVG (drawing) + GLFW (window/input) +
-Vulkan (GPU compute backend). The GUI shows:
+A native macOS GUI uses ThorVG (drawing) + GLFW (window/input) + Vulkan (GPU
+compute backend). The GUI shows:
 
 - Input image preview
 - Layer list with thumbnails
@@ -69,9 +69,8 @@ clang++ -std=c++17 gui/main.cpp gui/canvas.cpp gui/pipeline.cpp \
   -o see-through-gui -lglfw -lthorvg -lvulkan
 ```
 
-## Next steps
+## Open items
 
-1. Set up GLFW window with Vulkan context
-2. Integrate ThorVG canvas for the UI layout
-3. Wire the pipeline dispatch (background thread, progress updates)
-4. Package as .app bundle
+The GLFW window and Vulkan context do not initialize yet; the ThorVG canvas
+has no UI layout, the pipeline dispatch has no background thread or progress
+updates, and no `.app` bundle exists.

@@ -9,7 +9,7 @@ license: Apache 2.0
 
 ## Problem statement
 
-The [weftspun/see-through-cpp](https://github.com/weftspun/see-through-cpp) pipeline decomposes a single anime illustration into semantically layered PSD output. It currently runs on ggml (C++ GPU backends). We need a verified, portable implementation using Lean 4 for formal kernel correctness and Slang for portable GPU compute.
+The [weftspun/see-through-cpp](https://github.com/weftspun/see-through-cpp) pipeline decomposes a single anime illustration into semantically layered PSD output. It runs on ggml (C++ GPU backends). We need a verified, portable implementation using Lean 4 for formal kernel correctness and Slang for portable GPU compute.
 
 ## Goals
 

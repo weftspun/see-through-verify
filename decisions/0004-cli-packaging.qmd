@@ -56,9 +56,8 @@ bash package.sh
 - **Docker image**: Not suitable for native macOS distribution.
 - **Raw binary tarball**: Simpler but no standard install path.
 
-## Next steps
+## Open items
 
-1. Build the CLI binary
-2. Run `--demo` to verify safetensors reading
-3. Run `package.sh` to produce the .pkg
-4. Distribute the .pkg to users
+The CLI binary does not build yet; the safetensors reader and its `--demo`
+path are not exercised, and `package.sh` produces no `.pkg`. Distribution to
+users remains unimplemented.
