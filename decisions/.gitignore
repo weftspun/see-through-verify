@@ -1,0 +1,5 @@
+
+# Quarto render artifacts
+_book/
+**/*_files/
+.quarto/

@@ -1,8 +1,14 @@
-# RFD tasks complete
+---
+title: "E2E Test Instructions"
+rfd: 3
+status: Published
+author: fire
+date: 2026-07-31
+---
 
 ## What we built
 
-| RFD Task | Status | What |
+| RFD task | Status | What |
 |----------|--------|------|
 | 4. lean-duckdb dep | ✅ | `lakefile.lean` — `require «lean-duckdb»` |
 | 5. Compute shaders | ✅ | `Compute/Gemm.lean` — GEMM (verified emit) |
@@ -10,7 +16,7 @@
 | | | `Compute/Attention.lean` — QK^T + softmax + PV |
 | | | `Compute/Norm.lean` — layer norm + SiLU |
 | 6. Runtime harness | ✅ | `Runtime/harness.cpp` — Vulkan + DuckDB Parquet loader |
-| | | `RFD/0002-runtime-harness.md` — architecture doc |
+| | | [RFD 2](0002-runtime-harness.qmd) — architecture doc |
 | 7. E2E test | 🟡 | Needs model weights downloaded + `slangc` + Vulkan SDK |
 
 ## To complete E2E test
@@ -33,4 +39,5 @@ clang++ harness.cpp -o harness -lduckdb -lvulkan \
   gemm.spv 320 160 64
 ```
 
-The weights (`sh*tagaki-lab/see-through` HF repos) are ~5-7GB f16 models — the `tools/download-models.py` script fetches and converts them automatically.
+The weights (`sh*tagaki-lab/see-through` HF repos) are ~5-7GB f16 models — the
+`tools/download-models.py` script fetches and converts them automatically.

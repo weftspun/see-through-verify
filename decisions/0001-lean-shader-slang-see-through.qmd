@@ -1,0 +1,83 @@
+---
+title: "Lean Shader Slang See-Through"
+rfd: 1
+status: Published
+author: fire
+date: 2026-07-31
+license: Apache 2.0
+---
+
+## Problem statement
+
+The [weftspun/see-through-cpp](https://github.com/weftspun/see-through-cpp) pipeline decomposes a single anime illustration into semantically layered PSD output. It currently runs on ggml (C++ GPU backends). We need a verified, portable implementation using Lean 4 for formal kernel correctness and Slang for portable GPU compute.
+
+## Goals
+
+1. **Correctness by construction**: Every GPU compute kernel is emitted from Lean 4 via [lean-slang](https://github.com/V-Sekai-fire/lean-slang), verified with `native_decide` reference fixtures, and cross-checked against a CPU harness.
+
+2. **Portable weights**: Model weights from [shitagaki-lab/see-through](https://github.com/shitagaki-lab/see-through) (HuggingFace safetensors) are consumed directly at original dtype.
+
+3. **Performant**: Slang → `slangc -target spirv` → Vulkan GPU dispatch on NVIDIA/AMD; Slang → Metal Shading Language path for Apple Silicon.
+
+## Repository layout
+
+```
+see-through-verify/
+├── decisions/               # Decision records (this book)
+├── Compute/                 # Lean Slang compute shader modules
+│   ├── Gemm.lean            # f32×f32 GEMM
+│   ├── Conv2d.lean          # f32×f32 direct conv2d
+│   └── Verify.lean          # native_decide reference fixtures
+├── shaders/                 # Slang shader sources
+│   └── cpp/                 # slangc -target cpp exports (CPU-validation)
+├── Runtime/                 # GPU runtime harness
+├── lakefile.lean
+└── LICENSE
+```
+
+## Weight pipeline
+
+```
+shitagaki-lab/see-through (HuggingFace safetensors)  →  Compute/Safetensors.lean
+        ─ or direct ggml GGUF oracle taps for validation
+```
+
+Weights flow: HuggingFace safetensors → `Compute/Safetensors.lean` reads
+directly (original dtype, no widening). Slang shaders load raw bytes and
+reinterpret based on metadata.
+
+## Compute shader modules
+
+| Shader | Role |
+| ------ | ---- |
+| GEMM | C[M,N] = A[M,K] × B[K,N] — foundation for all linears, convs, attention |
+| Direct conv2d | out[oc,oh,ow] = Σ_c Σ_kh Σ_kw in[c,oh·s+kh,ow·s+kw] × w[c,oc,kh,kw] |
+| MHA attention | QK^T / sqrt(hd) softmax PV, per-head workspace |
+| LayerNorm / GroupNorm | Normalization for transformer blocks & resnets |
+| GEGLU | LayerNorm GEGLU FFN (gate in 2nd half) |
+
+All kernels are authored in Slang and exported to C++ via `slangc -target cpp`
+(per-thread, no barriers), then validated against ggml oracle taps — no
+hand-coded C++. Live verification status (which kernels are GREEN) is tracked
+in [RFD 0006](0006-cli-parity.qmd); the critical-path plan is [RFD
+0006](0006-cli-parity.qmd) and its PERT diagram is [RFD
+0007](0007-cli-parity.qmd).
+
+## GPU dispatch
+
+The runtime flow:
+
+1. **Compile time** (Lean): `Compute/Gemm.lean` → `LeanSlang.emit` → `.slang` source
+2. **Build time** (slangc): `slangc -target cpp` → `.cpp` for CPU validation, `-target spirv` / `-target metal` for GPU
+3. **Launch time** (C++/Rust harness): bind weight buffers, `vkCmdDispatch` the shaders in pipeline order, read back results.
+
+The CPU cpp path is the verification anchor: if CPU C++ output matches the GPU
+(SPIR-V and/or Metal) output, the shader is provably correct on all targets
+because they are generated from the same source.
+
+## Verification gate
+
+Kernel correctness is validated by comparing Slang-exported output against
+ggml oracle taps, gating on `cos > 0.999` (GGUF-F16 vs safetensors-BF16 weight
+rounding makes a strict `max_abs` gate too tight for chained stages). See
+[RFD 0006](0006-cli-parity.qmd).

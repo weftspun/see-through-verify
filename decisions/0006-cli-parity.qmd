@@ -1,15 +1,16 @@
-# RFD 6 — CLI Parity Critical Path (PERT)
-
-**Status:** Published
-**Author:** fire
-**Date:** 2026-08-01
-**License:** Apache 2.0
+---
+title: "CLI Parity Critical Path (PERT)"
+rfd: 6
+status: Published
+author: fire
+date: 2026-08-01
+---
 
 See the companion PERT diagram (Mermaid source, renders natively on GitHub):
-`decisions/0007-cli-parity.md`.
+[RFD 7](0007-cli-parity.qmd).
 
-> Rendering note: the layout uses `flowchart.useMaxWidth=true` plus tight
-> spacing so the wide LR diagram scales to the Obsidian pane width.
+> Rendering note: the diagram uses `flowchart.useMaxWidth=true` plus tight
+> spacing so the wide LR layout scales to the Obsidian pane width.
 
 ## Problem
 
@@ -26,10 +27,10 @@ The governing sequence is **A → E → F → G → H**:
 
 | Node | Work | Status |
 |------|------|--------|
-| A | CLIP text encoder (12× GEMM + attn + norm) | GREEN — bit-for-bit encoder match vs ggml (output `cliped` cos=1.0) |
-| B | LayerDiff UNet body (3-level, transformer blocks, 2452 tensors, 7.6 GB) | In progress — all primitives GREEN |
-| C | Marigold depth UNet (2-level, 990 tensors) | Pending |
-| D | VAE decoders (trans-vae, sd-vae, marigold-vae, 1052 tensors) | Pending |
+| A | CLIP text encoder (12× GEMM + attn + norm) | GREEN — bit-for-bit encoder match vs ggml (cos=1.0) |
+| B | LayerDiff UNet body (3-level, transformer blocks) | In progress — all primitives GREEN |
+| C | Marigold depth UNet (2-level) | Pending |
+| D | VAE decoders (trans-vae, sd-vae, marigold-vae) | Pending |
 | E | Dispatch runner (graph → sequence of shader dispatches) | GREEN |
 | F | DDIM scheduler (30-step loop, 2 UNet passes) | GREEN |
 | G | Layer postprocess (depth reordering → bbox → PSD) | Partial — CLIP validated |
@@ -47,20 +48,9 @@ dispatches. The dispatch runner reads weight bindings from
   single step's output matches the ggml oracle.
 - **CLI PARITY**: full pipeline output matching the reference PSD.
 
-## Kernel status (verified against ggml oracle taps, cos ≥ 0.999)
+## Kernel status
 
-All implementation kernels are authored in Slang and exported to C++ via
-`slangc -target cpp` (per-thread, no barriers), then validated against ggml
-oracle taps — no hand-coded C++:
-
-| Kernel | shader | status |
-|--------|--------|--------|
-| GEMM | `shaders/gemm.slang` | GREEN |
-| MHA attention | `shaders/mha.slang` | GREEN (cos=1.0) |
-| LayerNorm | `shaders/layernorm.slang` | GREEN |
-| GEGLU | `shaders/geglu.slang` | GREEN (cos=0.999997) |
-| Conv2d | `shaders/conv2d.slang` | GREEN |
-| GroupNorm | `shaders/groupnorm.slang` | GREEN |
+{{< include 00-kernel-status.md >}}
 
 ## Next steps
 
@@ -68,5 +58,5 @@ oracle taps — no hand-coded C++:
    transformer3d, temporal cross-frame) from the exported kernels → M2 GREEN.
 2. Wire Marigold + VAE decode + postprocess → PSD output → CLI parity.
 
-See also: `decisions/0001` (pipeline architecture), `decisions/0002`
-(runtime harness).
+See also: [RFD 1](0001-lean-shader-slang-see-through.qmd) (pipeline
+architecture), [RFD 2](0002-runtime-harness.qmd) (runtime harness).

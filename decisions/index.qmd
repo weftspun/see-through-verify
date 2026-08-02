@@ -1,0 +1,29 @@
+---
+title: "See-Through Verify — Decision Records"
+---
+
+# Decision Records
+
+Numbered decision records for `see-through-verify`, the verified Lean-Slang
+reimplementation of the `weftspun/see-through-cpp` diffusion pipeline.
+
+The project decomposes a single anime illustration into semantically layered
+PSD output (anime illustration → layered PSD). It reimplements the original
+ggml/C++ pipeline with verified GPU compute: every kernel is authored in Slang
+and exported to C++ via `slangc -target cpp`, then validated against ggml
+oracle taps — no hand-coded C++.
+
+## The records
+
+| RFD | Title | State |
+|-----|-------|-------|
+| [0001](0001-lean-shader-slang-see-through.qmd) | Lean Shader Slang See-Through (pipeline architecture) | Published |
+| [0002](0002-runtime-harness.qmd) | Runtime harness | Published |
+| [0003](0003-e2e-test-instructions.qmd) | E2E test instructions | Published |
+| [0004](0004-cli-packaging.qmd) | CLI packaging (fpm) | Draft |
+| [0005](0005-gui-thorvg-glfw.qmd) | GUI with ThorVG + GLFW + Vulkan | Draft |
+| [0006](0006-cli-parity.qmd) | CLI parity critical path (PERT) | Published |
+| [0007](0007-cli-parity.qmd) | CLI parity PERT diagram (Mermaid) | Published |
+
+Live verification status — which kernels are GREEN and the current critical-path
+position — lives in one place: [RFD 0006](0006-cli-parity.qmd).

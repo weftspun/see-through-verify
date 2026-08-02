@@ -1,11 +1,17 @@
-# CLI Parity — Critical Path (PERT)
+---
+title: "CLI Parity PERT Diagram"
+rfd: 7
+status: Published
+author: fire
+date: 2026-08-01
+---
 
-Mermaid flowchart source for the CLI-parity critical path. Renders natively on
-GitHub. Colors chosen in OKHSL (perceptually uniform): every role shares the
-same lightness (fill L=0.34, border L=0.60, text L=0.82) and differs only by
-hue — green=done, red=critical path, blue=pending, amber=optional.
+The critical-path PERT diagram for [RFD 6](0006-cli-parity.qmd). Colors are
+chosen in OKHSL (perceptually uniform): every role shares the same lightness
+(fill L=0.34, border L=0.60, text L=0.82) and differs only by hue — green=done,
+red=critical path, amber=optional.
 
-```mermaid
+```{mermaid}
 %%{init: {"theme": "base", "themeVariables": {
   "background": "#16213e",
   "fontFamily": "SF Mono, Menlo, Monaco, monospace"

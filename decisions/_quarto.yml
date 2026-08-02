@@ -1,0 +1,33 @@
+project:
+  type: book
+
+book:
+  title: "See-Through Verify — Decision Records"
+  subtitle: "A verified Lean-Slang reimplementation of weftspun/see-through-cpp"
+  author: "K. S. Ernest (iFire) Lee"
+  date: today
+  chapters:
+    - index.qmd
+    - part: "Architecture"
+      chapters:
+        - 0001-lean-shader-slang-see-through.qmd
+        - 0002-runtime-harness.qmd
+    - part: "Delivery"
+      chapters:
+        - 0004-cli-packaging.qmd
+        - 0005-gui-thorvg-glfw.qmd
+    - part: "Verification"
+      chapters:
+        - 0003-e2e-test-instructions.qmd
+        - 0006-cli-parity.qmd
+        - 0007-cli-parity.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    mermaid:
+      theme: dark
+  pdf:
+    documentclass: scrreprt
+    papersize: letter

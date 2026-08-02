@@ -18,3 +18,8 @@ weights/
 *.app
 *.tar
 .DS_Store
+
+# Quarto output
+_book/
+.obsidian/
+

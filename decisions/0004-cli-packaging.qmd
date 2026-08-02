@@ -1,8 +1,10 @@
-# RFD 4 — CLI Packaging with fpm
-
-**Status:** Draft  
-**Author:** fire  
-**Date:** 2026-07-31  
+---
+title: "CLI Packaging (fpm)"
+rfd: 4
+status: Draft
+author: fire
+date: 2026-07-31
+---
 
 ## Problem
 

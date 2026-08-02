@@ -1,8 +1,10 @@
-# RFD 5 — GUI with ThorVG + GLFW + Vulkan
-
-**Status:** Draft  
-**Author:** fire  
-**Date:** 2026-07-31  
+---
+title: "GUI with ThorVG + GLFW + Vulkan"
+rfd: 5
+status: Draft
+author: fire
+date: 2026-07-31
+---
 
 ## Problem
 
