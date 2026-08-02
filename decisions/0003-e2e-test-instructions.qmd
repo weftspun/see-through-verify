@@ -39,5 +39,5 @@ clang++ harness.cpp -o harness -lduckdb -lvulkan \
   gemm.spv 320 160 64
 ```
 
-The weights (`sh*tagaki-lab/see-through` HF repos) are ~5-7GB f16 models — the
+The weights (`sh*tagaki-lab/see-through` HF repos) are ~5-7GB f16 models. The
 `tools/download-models.py` script fetches and converts them automatically.
