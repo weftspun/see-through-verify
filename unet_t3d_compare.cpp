@@ -13,8 +13,27 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <Accelerate/Accelerate.h>
 
+// token-major linear y[t,o] = sum_k x[t,k]*W[o,k] + b[o], where W is stored
+// [Cout, Cin] (row = output). This is the GEMM  C = X·W^T + b. Routed through
+// Apple's Accelerate BLAS (the same C BLAS numpy uses) so the harness runs in
+// seconds, not minutes, while staying pure C++.
+static void token_linear(const float *x, const float *W, const float *b, float *y,
+                         int T, int Cin, int Cout) {
+    if (T <= 0 || Cin <= 0 || Cout <= 0) return;
+    for (int t = 0; t < T; t++)                // init with bias
+        for (int o = 0; o < Cout; o++) y[t*Cout+o] = b ? b[o] : 0.f;
+    // C[T,Cout] = A[T,Cin] * W^T[Cin,Cout] + C   (W stored row-major [Cout,Cin])
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                T, Cout, Cin, 1.f,
+                x, Cin,          // lda
+                W, Cin,          // ldb: leading dim of W is Cin
+                1.f,             // accumulate onto bias-initialized C
+                y, Cout);
+}
 struct SfTensor { std::string name, dtype; std::vector<int64_t> shape; size_t offset, size; };
+
 static std::vector<SfTensor> read_sf(const char *path, size_t *data_start) {
     FILE *f = fopen(path, "rb");
     uint8_t buf[8]; fread(buf, 1, 8, f);
@@ -50,9 +69,24 @@ static std::vector<SfTensor> read_sf(const char *path, size_t *data_start) {
     }
     return tensors;
 }
-static std::vector<uint8_t> load_tensor_data(const char *sf, size_t ds, size_t off, size_t sz) {
-    FILE *f = fopen(sf, "rb"); fseeko(f, (off_t)(ds+off), SEEK_SET);
-    std::vector<uint8_t> data(sz); fread(data.data(), 1, sz, f); fclose(f); return data;
+// ---- fast safetensors loader: mmap the whole file once, slice tensors ----
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+struct MappedFile {
+    const uint8_t * data = nullptr;
+    size_t size = 0;
+    int fd = -1;
+    ~MappedFile() { if (fd >= 0) { munmap((void*)data, size); close(fd); } }
+};
+static MappedFile g_map;  // whole-file mapping, populated once in main
+
+static std::vector<uint8_t> load_tensor_data(size_t off, size_t sz) {
+    // slice from the already-mapped whole file; no per-tensor fopen/fread
+    std::vector<uint8_t> data(sz);
+    if (off + sz <= g_map.size) memcpy(data.data(), g_map.data + off, sz);
+    return data;
 }
 static std::vector<float> bf16_to_f32(const std::vector<uint8_t> &raw, size_t n) {
     std::vector<float> out(n);
@@ -61,16 +95,7 @@ static std::vector<float> bf16_to_f32(const std::vector<uint8_t> &raw, size_t n)
 }
 
 // ---------- helpers ----------
-// token-major linear y[t,o] = sum_k x[t,k]*W[o,k] + b[o]
-static void token_linear(const float *x, const float *W, const float *b, float *y,
-                         int T, int Cin, int Cout) {
-    for (int t = 0; t < T; t++)
-        for (int o = 0; o < Cout; o++) {
-            float s = b ? b[o] : 0.f;
-            for (int k = 0; k < Cin; k++) s += x[t*Cin+k] * W[o*Cin+k];
-            y[t*Cout+o] = s;
-        }
-}
+// (token_linear defined above, backed by Accelerate BLAS)
 static void layer_norm_tokens(const float *x, float *y, const float *g, const float *bb,
                               int T, int D, float eps=1e-5f) {
     for (int t = 0; t < T; t++) {
@@ -122,6 +147,15 @@ int main(int argc, char **argv) {
     size_t ds = 0;
     auto tensors = read_sf(sf_path, &ds);
 
+    // mmap the whole file so tensor loading slices memory instead of
+    // reopening the (multi-GB) file per tensor.
+    g_map.fd = open(sf_path, O_RDONLY);
+    if (g_map.fd < 0) { perror("open"); return 1; }
+    struct stat st; fstat(g_map.fd, &st);
+    g_map.size = (size_t)st.st_size;
+    g_map.data = (const uint8_t*)mmap(nullptr, g_map.size, PROT_READ, MAP_PRIVATE, g_map.fd, 0);
+    if (g_map.data == MAP_FAILED) { perror("mmap"); return 1; }
+
     int F = 13;
     if (argc >= 4) F = atoi(argv[3]);
 
@@ -133,7 +167,7 @@ int main(int argc, char **argv) {
         auto *t = find(suffix);
         if (!t) { fprintf(stderr, "missing %s\n", suffix.c_str()); exit(1); }
         int n = 1; for (auto s : t->shape) n *= (int)s;
-        auto raw = load_tensor_data(sf_path, ds, t->offset, t->size);
+        auto raw = load_tensor_data(ds + t->offset, t->size);   // data_offsets are relative to data_start
         return bf16_to_f32(raw, (size_t)n);
     };
     auto read_oracle = [&](const char *name, int &oW,int &oH,int &oC,int &oF) -> std::vector<float> {
