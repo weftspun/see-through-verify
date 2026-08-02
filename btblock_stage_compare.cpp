@@ -8,59 +8,12 @@
 #include <vector>
 #include <string>
 
-struct SfTensor { std::string name, dtype; std::vector<int64_t> shape; size_t offset, size; };
-static std::vector<SfTensor> read_sf(const char *path, size_t *data_start) {
-    FILE *f = fopen(path, "rb");
-    uint8_t buf[8]; fread(buf, 1, 8, f);
-    uint64_t hdr_len = 0;
-    for (int j = 0; j < 8; j++) hdr_len |= (uint64_t)buf[j] << (j * 8);
-    std::string json((size_t)hdr_len, 0);
-    fread(&json[0], 1, hdr_len, f); *data_start = 8 + hdr_len; fclose(f);
-    std::vector<SfTensor> tensors; size_t i = 0;
-    while (i < json.size() && json[i] != '}') {
-        while (i < json.size() && (json[i]==' '||json[i]==10||json[i]==9||json[i]==13||json[i]==',')) i++;
-        if (i >= json.size() || json[i] == '}') break;
-        if (json[i] != '"') { i++; continue; }
-        size_t ns = ++i; while (i < json.size() && json[i] != '"') i++;
-        std::string name = json.substr(ns, i - ns); i++;
-        if (name == "__metadata__") { while (i < json.size() && json[i] != '}') i++; i++; continue; }
-        while (i < json.size() && json[i] != '{') i++; i++;
-        SfTensor t; t.name = name; t.offset = 0; t.size = 0;
-        while (i < json.size() && json[i] != '}') {
-            while (i < json.size() && (json[i]==' '||json[i]==10||json[i]==9||json[i]==13||json[i]==',')) i++;
-            if (json[i] == '}') break; if (json[i] != '"') { i++; continue; }
-            size_t fs = ++i; while (i < json.size() && json[i] != '"') i++;
-            std::string field = json.substr(fs, i - fs); i++;
-            while (i < json.size() && json[i] != ':') i++; i++;
-            if (field == "dtype") {
-                if (json[i] == '"') { size_t vs = ++i; while (i < json.size() && json[i] != '"') i++; t.dtype = json.substr(vs, i - vs); i++; }
-            } else if (field == "shape") {
-                if (json[i] == '[') { i++; while (i < json.size() && json[i] != ']') { while (i < json.size() && (json[i]==' '||json[i]==',')) i++; if (i < json.size() && json[i] >= '0' && json[i] <= '9') { char *end; t.shape.push_back(strtol(&json[i], &end, 10)); i = end - &json[0]; } } i++; }
-            } else if (field == "data_offsets") {
-                if (json[i] == '[') { i++; int idx=0; uint64_t vals[2]={0,0}; while (i < json.size() && json[i] != ']') { while (i < json.size() && (json[i]==' '||json[i]==',')) i++; if (i < json.size() && json[i] >= '0' && json[i] <= '9') { char *end; vals[idx++]=strtoull(&json[i], &end, 10); i=end-&json[0]; } } i++; t.offset=vals[0]; t.size=vals[1]-vals[0]; }
-            }
-        }
-        i++; tensors.push_back(t);
-    }
-    return tensors;
-}
-static std::vector<uint8_t> load_tensor_data(const char *sf, size_t ds, size_t off, size_t sz) {
-    FILE *f = fopen(sf, "rb"); fseeko(f, (off_t)(ds+off), SEEK_SET);
-    std::vector<uint8_t> data(sz); fread(data.data(), 1, sz, f); fclose(f); return data;
-}
+// shared fast loader + Accelerate-BLAS token_linear (mmap once, numpy's C BLAS)
+#include "verify_common.h"
 static std::vector<float> bf16_to_f32(const std::vector<uint8_t> &raw, size_t n) {
     std::vector<float> out(n);
     for (size_t i = 0; i < n; i++) { uint32_t u32 = (uint32_t)((uint16_t*)raw.data())[i] << 16; memcpy(&out[i], &u32, 4); }
     return out;
-}
-static void token_linear(const float *x, const float *W, const float *b, float *y,
-                         int T, int Cin, int Cout) {
-    for (int t = 0; t < T; t++)
-        for (int o = 0; o < Cout; o++) {
-            float s = b ? b[o] : 0.f;
-            for (int k = 0; k < Cin; k++) s += x[t*Cin+k] * W[o*Cin+k];
-            y[t*Cout+o] = s;
-        }
 }
 static void layer_norm_tokens(const float *x, float *y, const float *g, const float *bb,
                               int T, int D, float eps=1e-5f) {
@@ -110,6 +63,7 @@ int main(int argc, char **argv) {
     const char *sf_path = argv[1];
     size_t ds = 0;
     auto tensors = read_sf(sf_path, &ds);
+    if (map_safetensors(sf_path, ds) != 0) return 1;
     auto find = [&](std::string suffix) -> const SfTensor* {
         for (auto &t : tensors) if (t.name == suffix) return &t;
         return nullptr;
@@ -118,7 +72,7 @@ int main(int argc, char **argv) {
         auto *t = find(suffix);
         if (!t) { fprintf(stderr, "missing %s\n", suffix.c_str()); exit(1); }
         int n = 1; for (auto s : t->shape) n *= (int)s;
-        auto raw = load_tensor_data(sf_path, ds, t->offset, t->size);
+        auto raw = load_tensor_data(ds + t->offset, t->size);
         return bf16_to_f32(raw, (size_t)n);
     };
 

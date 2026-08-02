@@ -13,81 +13,8 @@
 #include <cmath>
 #include <vector>
 #include <string>
-#include <Accelerate/Accelerate.h>
+#include "verify_common.h"   // shared mmap loader + Accelerate-BLAS token_linear
 
-// token-major linear y[t,o] = sum_k x[t,k]*W[o,k] + b[o], where W is stored
-// [Cout, Cin] (row = output). This is the GEMM  C = X·W^T + b. Routed through
-// Apple's Accelerate BLAS (the same C BLAS numpy uses) so the harness runs in
-// seconds, not minutes, while staying pure C++.
-static void token_linear(const float *x, const float *W, const float *b, float *y,
-                         int T, int Cin, int Cout) {
-    if (T <= 0 || Cin <= 0 || Cout <= 0) return;
-    for (int t = 0; t < T; t++)                // init with bias
-        for (int o = 0; o < Cout; o++) y[t*Cout+o] = b ? b[o] : 0.f;
-    // C[T,Cout] = A[T,Cin] * W^T[Cin,Cout] + C   (W stored row-major [Cout,Cin])
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                T, Cout, Cin, 1.f,
-                x, Cin,          // lda
-                W, Cin,          // ldb: leading dim of W is Cin
-                1.f,             // accumulate onto bias-initialized C
-                y, Cout);
-}
-struct SfTensor { std::string name, dtype; std::vector<int64_t> shape; size_t offset, size; };
-
-static std::vector<SfTensor> read_sf(const char *path, size_t *data_start) {
-    FILE *f = fopen(path, "rb");
-    uint8_t buf[8]; fread(buf, 1, 8, f);
-    uint64_t hdr_len = 0;
-    for (int j = 0; j < 8; j++) hdr_len |= (uint64_t)buf[j] << (j * 8);
-    std::string json((size_t)hdr_len, 0);
-    fread(&json[0], 1, hdr_len, f); *data_start = 8 + hdr_len; fclose(f);
-    std::vector<SfTensor> tensors; size_t i = 0;
-    while (i < json.size() && json[i] != '}') {
-        while (i < json.size() && (json[i]==' '||json[i]==10||json[i]==9||json[i]==13||json[i]==',')) i++;
-        if (i >= json.size() || json[i] == '}') break;
-        if (json[i] != '"') { i++; continue; }
-        size_t ns = ++i; while (i < json.size() && json[i] != '"') i++;
-        std::string name = json.substr(ns, i - ns); i++;
-        if (name == "__metadata__") { while (i < json.size() && json[i] != '}') i++; i++; continue; }
-        while (i < json.size() && json[i] != '{') i++; i++;
-        SfTensor t; t.name = name; t.offset = 0; t.size = 0;
-        while (i < json.size() && json[i] != '}') {
-            while (i < json.size() && (json[i]==' '||json[i]==10||json[i]==9||json[i]==13||json[i]==',')) i++;
-            if (json[i] == '}') break; if (json[i] != '"') { i++; continue; }
-            size_t fs = ++i; while (i < json.size() && json[i] != '"') i++;
-            std::string field = json.substr(fs, i - fs); i++;
-            while (i < json.size() && json[i] != ':') i++; i++;
-            if (field == "dtype") {
-                if (json[i] == '"') { size_t vs = ++i; while (i < json.size() && json[i] != '"') i++; t.dtype = json.substr(vs, i - vs); i++; }
-            } else if (field == "shape") {
-                if (json[i] == '[') { i++; while (i < json.size() && json[i] != ']') { while (i < json.size() && (json[i]==' '||json[i]==',')) i++; if (i < json.size() && json[i] >= '0' && json[i] <= '9') { char *end; t.shape.push_back(strtol(&json[i], &end, 10)); i = end - &json[0]; } } i++; }
-            } else if (field == "data_offsets") {
-                if (json[i] == '[') { i++; int idx=0; uint64_t vals[2]={0,0}; while (i < json.size() && json[i] != ']') { while (i < json.size() && (json[i]==' '||json[i]==',')) i++; if (i < json.size() && json[i] >= '0' && json[i] <= '9') { char *end; vals[idx++]=strtoull(&json[i], &end, 10); i=end-&json[0]; } } i++; t.offset=vals[0]; t.size=vals[1]-vals[0]; }
-            }
-        }
-        i++; tensors.push_back(t);
-    }
-    return tensors;
-}
-// ---- fast safetensors loader: mmap the whole file once, slice tensors ----
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-struct MappedFile {
-    const uint8_t * data = nullptr;
-    size_t size = 0;
-    int fd = -1;
-    ~MappedFile() { if (fd >= 0) { munmap((void*)data, size); close(fd); } }
-};
-static MappedFile g_map;  // whole-file mapping, populated once in main
-
-static std::vector<uint8_t> load_tensor_data(size_t off, size_t sz) {
-    // slice from the already-mapped whole file; no per-tensor fopen/fread
-    std::vector<uint8_t> data(sz);
-    if (off + sz <= g_map.size) memcpy(data.data(), g_map.data + off, sz);
-    return data;
-}
 static std::vector<float> bf16_to_f32(const std::vector<uint8_t> &raw, size_t n) {
     std::vector<float> out(n);
     for (size_t i = 0; i < n; i++) { uint32_t u32 = (uint32_t)((uint16_t*)raw.data())[i] << 16; memcpy(&out[i], &u32, 4); }
@@ -95,7 +22,7 @@ static std::vector<float> bf16_to_f32(const std::vector<uint8_t> &raw, size_t n)
 }
 
 // ---------- helpers ----------
-// (token_linear defined above, backed by Accelerate BLAS)
+// (token_linear provided by verify_common.h, backed by Accelerate BLAS)
 static void layer_norm_tokens(const float *x, float *y, const float *g, const float *bb,
                               int T, int D, float eps=1e-5f) {
     for (int t = 0; t < T; t++) {
@@ -149,12 +76,7 @@ int main(int argc, char **argv) {
 
     // mmap the whole file so tensor loading slices memory instead of
     // reopening the (multi-GB) file per tensor.
-    g_map.fd = open(sf_path, O_RDONLY);
-    if (g_map.fd < 0) { perror("open"); return 1; }
-    struct stat st; fstat(g_map.fd, &st);
-    g_map.size = (size_t)st.st_size;
-    g_map.data = (const uint8_t*)mmap(nullptr, g_map.size, PROT_READ, MAP_PRIVATE, g_map.fd, 0);
-    if (g_map.data == MAP_FAILED) { perror("mmap"); return 1; }
+    if (map_safetensors(sf_path, ds) != 0) return 1;
 
     int F = 13;
     if (argc >= 4) F = atoi(argv[3]);
