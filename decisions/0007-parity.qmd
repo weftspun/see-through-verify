@@ -1,0 +1,10 @@
+---
+title: "CPU (Accelerate-BLAS) and shader (Slang→Metal/SPIR-V) must have parity in both performance and soundness"
+rfd: 7
+status: Published
+author: fire
+date: 2026-08-01
+jupyter: python3
+---
+
+CPU validation (Accelerate-BLAS) and shader Slang→Metal/SPIR-V must stay on par in both performance and soundness.
