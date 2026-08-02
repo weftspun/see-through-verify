@@ -1,4 +1,4 @@
-# see-through CLI — Lean Shader Slang implementation
+# see-through CLI: Lean Shader Slang implementation
 
 This directory contains the new see-through CLI that replicates the
 [weftspun/see-through-cpp](https://github.com/weftspun/see-through-cpp)
@@ -31,7 +31,7 @@ Postprocess ──────────→ layered PSD + depth PSD + JSON met
 
 ## Weight format
 
-All weights are stored as zstd-compressed Parquet files under `weights/`:
+The CLI stores all weights as zstd-compressed Parquet files under `weights/`:
 
 ```
 weights/

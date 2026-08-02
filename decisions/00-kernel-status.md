@@ -1,6 +1,6 @@
-All implementation kernels are authored in Slang and exported to C++ via
-`slangc -target cpp` (per-thread, no barriers), then validated against ggml
-oracle taps — no hand-coded C++:
+The pipeline authors every implementation kernel in Slang and exports it to
+C++ via `slangc -target cpp` (per-thread, no barriers), then compares it
+against ggml oracle taps. No C++ kernels are hand-written:
 
 | Kernel | Shader | Status |
 |--------|--------|--------|

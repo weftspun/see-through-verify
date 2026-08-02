@@ -13,11 +13,11 @@ The [weftspun/see-through-cpp](https://github.com/weftspun/see-through-cpp) pipe
 
 ## Goals
 
-1. **Correctness by construction**: Every GPU compute kernel is emitted from Lean 4 via [lean-slang](https://github.com/V-Sekai-fire/lean-slang), verified with `native_decide` reference fixtures, and cross-checked against a CPU harness.
+1. **Correctness by construction**: Lean 4 emits every GPU compute kernel via [lean-slang](https://github.com/V-Sekai-fire/lean-slang), verifies it with `native_decide` reference fixtures, and cross-checks it against a CPU harness.
 
-2. **Portable weights**: Model weights from [shitagaki-lab/see-through](https://github.com/shitagaki-lab/see-through) (HuggingFace safetensors) are consumed directly at original dtype.
+2. **Portable weights**: The pipeline reads model weights from [shitagaki-lab/see-through](https://github.com/shitagaki-lab/see-through) (HuggingFace safetensors) directly at original dtype.
 
-3. **Performant**: Slang → `slangc -target spirv` → Vulkan GPU dispatch on NVIDIA/AMD; Slang → Metal Shading Language path for Apple Silicon.
+3. **Performant**: Slang → `slangc -target spirv` → Vulkan GPU dispatch on NVIDIA/AMD. Slang → Metal Shading Language handles Apple Silicon.
 
 ## Repository layout
 
@@ -56,11 +56,12 @@ reinterpret based on metadata.
 | LayerNorm / GroupNorm | Normalization for transformer blocks & resnets |
 | GEGLU | LayerNorm GEGLU FFN (gate in 2nd half) |
 
-All kernels are authored in Slang and exported to C++ via `slangc -target cpp`
-(per-thread, no barriers), then validated against ggml oracle taps — no
-hand-coded C++. Live verification status (which kernels are GREEN) is tracked
-in [RFD 0006](0006-cli-parity.qmd); the critical-path plan and its PERT diagram
-are both in [RFD 0006](0006-cli-parity.qmd).
+The pipeline authors all kernels in Slang and exports them to C++ via
+`slangc -target cpp` (per-thread, no barriers), then validates them against
+ggml oracle taps. No C++ kernels are hand-written. Live verification status
+(which kernels are GREEN) lives in [RFD 0006](0006-cli-parity.qmd). The
+critical-path plan and its PERT diagram both live in [RFD
+0006](0006-cli-parity.qmd).
 
 ## GPU dispatch
 
@@ -70,13 +71,14 @@ The runtime flow:
 2. **Build time** (slangc): `slangc -target cpp` → `.cpp` for CPU validation, `-target spirv` / `-target metal` for GPU
 3. **Launch time** (C++/Rust harness): bind weight buffers, `vkCmdDispatch` the shaders in pipeline order, read back results.
 
-The CPU cpp path is the verification anchor: if CPU C++ output matches the GPU
-(SPIR-V and/or Metal) output, the shader is provably correct on all targets
-because they are generated from the same source.
+The CPU cpp path is the verification anchor. It confirms that the CPU C++
+output matches the GPU (SPIR-V and/or Metal) output, so the shader is
+provably correct on all targets because the same source generates all of
+them.
 
 ## Verification gate
 
-Kernel correctness is validated by comparing Slang-exported output against
-ggml oracle taps, gating on `cos > 0.999` (GGUF-F16 vs safetensors-BF16 weight
+Comparing Slang-exported output against ggml oracle taps validates kernel
+correctness, gating on `cos > 0.999` (GGUF-F16 vs safetensors-BF16 weight
 rounding makes a strict `max_abs` gate too tight for chained stages). See
 [RFD 0006](0006-cli-parity.qmd).

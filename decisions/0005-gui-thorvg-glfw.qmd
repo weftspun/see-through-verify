@@ -71,6 +71,6 @@ clang++ -std=c++17 gui/main.cpp gui/canvas.cpp gui/pipeline.cpp \
 
 ## Open items
 
-The GLFW window and Vulkan context do not initialize yet; the ThorVG canvas
-has no UI layout, the pipeline dispatch has no background thread or progress
+The GLFW window and Vulkan context do not initialize yet. The ThorVG canvas
+has no UI layout. The pipeline dispatch has no background thread or progress
 updates, and no `.app` bundle exists.

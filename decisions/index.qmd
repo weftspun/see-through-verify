@@ -9,9 +9,9 @@ reimplementation of the `weftspun/see-through-cpp` diffusion pipeline.
 
 The project decomposes a single anime illustration into semantically layered
 PSD output (anime illustration → layered PSD). It reimplements the original
-ggml/C++ pipeline with verified GPU compute: every kernel is authored in Slang
-and exported to C++ via `slangc -target cpp`, then validated against ggml
-oracle taps — no hand-coded C++.
+ggml/C++ pipeline with verified GPU compute. The pipeline authors every kernel
+in Slang and exports it to C++ via `slangc -target cpp`, then validates it
+against ggml oracle taps. No C++ kernels are hand-written.
 
 ## The records
 
@@ -24,5 +24,5 @@ oracle taps — no hand-coded C++.
 | [0005](0005-gui-thorvg-glfw.qmd) | GUI with ThorVG + GLFW + Vulkan | Draft |
 | [0006](0006-cli-parity.qmd) | CLI parity critical path (PERT) + diagram | Published |
 
-Live verification status — which kernels are GREEN and the current critical-path
-position — lives in one place: [RFD 0006](0006-cli-parity.qmd).
+Live verification status, which kernels are GREEN and the current critical-path
+position, lives in one place: [RFD 0006](0006-cli-parity.qmd).

@@ -58,6 +58,6 @@ bash package.sh
 
 ## Open items
 
-The CLI binary does not build yet; the safetensors reader and its `--demo`
+The CLI binary does not build yet. The safetensors reader and its `--demo`
 path are not exercised, and `package.sh` produces no `.pkg`. Distribution to
 users remains unimplemented.

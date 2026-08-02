@@ -10,17 +10,17 @@ jupyter: python3
 ## Problem
 
 `see-through-verify` reimplements the `weftspun/see-through-cpp` diffusion
-pipeline (anime illustration → layered PSD). To reach CLI parity — the same
-image-format flags and byte-identical reference PSD — the pipeline wires
+pipeline (anime illustration → layered PSD). CLI parity means the same
+image-format flags and a byte-identical reference PSD. The pipeline wires
 model-by-model along a single critical path. A PERT plan maps the dependencies
-so each milestone produces a working artifact before the next begins (Gall's
+so each milestone produces a working artifact before the next starts (Gall's
 Law).
 
 ## Critical path
 
 The governing sequence is **A → E → F → G → H**. The status table and the
 PERT diagram below both come from one source, `decisions/cli_parity.py`, which
-holds the node data once — the table and diagram cannot drift apart.
+holds the node data once. The table and diagram cannot drift apart.
 
 ```{python}
 #| echo: false
@@ -37,9 +37,9 @@ dispatches. The dispatch runner reads weight bindings from
 
 ## Milestones
 
-- **M1 — CLIP encode only**: GEMM + attention validation.
-- **M2 — one UNet diffusion step on GPU**: the next gate; M2 validates when a
-  single step's output matches the ggml oracle.
+- **M1**: CLIP encode only. GEMM + attention validation.
+- **M2**: one UNet diffusion step on GPU. This is the next gate. M2 validates
+  when a single step's output matches the ggml oracle.
 - **CLI PARITY**: full pipeline output matching the reference PSD.
 
 ## Kernel status
