@@ -4,6 +4,7 @@ rfd: 7
 status: Published
 author: fire
 date: 2026-08-01
+jupyter: python3
 ---
 
 CPU validation (Accelerate-BLAS) and shader Slang→Metal/SPIR-V must stay on
@@ -29,15 +30,15 @@ reference harnesses).
 
 ## Grade (measured 2026-08-01)
 
-| Op | Slang kernel vs oracle | BLAS ref vs oracle | CPU↔shader on par | Grade |
-|----|------------------------|--------------------|-------------------|-------|
-| MHA (T=8,C=1280,h=20) | cos=1.0, max=0 | cos=1.0, max=0 | cos=1.0, max=0 | **GREEN** |
-| GEMM (`token_linear`) | — | cos=1.0, max~1e-5 (vs scalar) | — | **GREEN** |
-| LayerNorm | cos=1.0 | — | — | **GREEN** |
-| GroupNorm | cos=1.0 | — | — | **GREEN** |
-| GEGLU | cos=0.999997 | — | — | **GREEN** |
-| Conv2d (F=1 tap) | cos=1.0 (vs direct-f32) | — | — | **GREEN (kernel); oracle fixture inconsistent** |
-| mid_block transformer3d (10 layers + 5 temporal) | cos=0.9958 | — | — | **OPEN** |
+| Op                                               | Slang kernel vs oracle  | BLAS ref vs oracle            | CPU↔shader on par | Grade                                           |
+| ------------------------------------------------ | ----------------------- | ----------------------------- | ----------------- | ----------------------------------------------- |
+| MHA (T=8,C=1280,h=20)                            | cos=1.0, max=0          | cos=1.0, max=0                | cos=1.0, max=0    | **GREEN**                                       |
+| GEMM (`token_linear`)                            | —                       | cos=1.0, max~1e-5 (vs scalar) | —                 | **GREEN**                                       |
+| LayerNorm                                        | cos=1.0                 | —                             | —                 | **GREEN**                                       |
+| GroupNorm                                        | cos=1.0                 | —                             | —                 | **GREEN**                                       |
+| GEGLU                                            | cos=0.999997            | —                             | —                 | **GREEN**                                       |
+| Conv2d (F=1 tap)                                 | cos=1.0 (vs direct-f32) | —                             | —                 | **GREEN (kernel); oracle fixture inconsistent** |
+| mid_block transformer3d (10 layers + 5 temporal) | cos=0.9958              | —                             | —                 | **OPEN**                                        |
 
 ## Findings
 
@@ -73,4 +74,3 @@ Accelerate-BLAS CPU validation is genuinely on par (sound and fast, ~0.25s per
 op). **One open item** remains: the chained mid_block transformer3d with
 temporal cross-frame (cos=0.9958). Closing that to cos>0.999 is the gate for
 M2, and the parity tag is complete once it lands.
-
