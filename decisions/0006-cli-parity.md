@@ -6,7 +6,10 @@
 **License:** Apache 2.0
 
 See the companion PERT diagram (Mermaid source, renders natively on GitHub):
-`decisions/0007-cli-parity.mmd`.
+`decisions/0007-cli-parity.md`.
+
+> Rendering note: the layout uses `flowchart.useMaxWidth=true` plus tight
+> spacing so the wide LR diagram scales to the Obsidian pane width.
 
 ## Problem
 

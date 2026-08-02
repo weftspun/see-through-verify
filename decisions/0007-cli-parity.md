@@ -9,10 +9,17 @@ hue — green=done, red=critical path, blue=pending, amber=optional.
 %%{init: {"theme": "base", "themeVariables": {
   "background": "#16213e",
   "fontFamily": "SF Mono, Menlo, Monaco, monospace"
+}, "flowchart": {
+  "curve": "basis",
+  "nodeSpacing": 18,
+  "rankSpacing": 28,
+  "wrappingWidth": 90,
+  "useMaxWidth": true,
+  "htmlLabels": true
 }} }%%
 flowchart LR
     %% Foundation (done)
-    subgraph Foundation["FOUNDATION — 4/4 complete"]
+    subgraph Foundation["FOUNDATION — 4/4"]
         G0[GEMM shader<br/>Slang→Metal ✓]:::done
         V0[Vulkan compute<br/>max_err=0.0 ✓]:::done
         W0[Weight loader<br/>safetensors→BF16 ✓]:::done
@@ -20,10 +27,10 @@ flowchart LR
     end
 
     %% Shader coverage — parallel
-    A[<b>A · CLIP text encoder</b><br/>12× GEMM + attn + norm<br/>2 files · 1.5GB]:::onpath
-    B[<b>B · LayerDiff UNet body</b><br/>3-level + transformer blocks<br/>2452 tensors · 7.6GB]:::onpath
-    C[<b>C · Marigold depth</b><br/>2-level depth estimation<br/>990 tensors · 2.3GB]:::onpath
-    D[<b>D · VAE decoder</b><br/>trans/sd/marigold-vae<br/>1052 tensors]:::offpath
+    A[<b>A · CLIP</b><br/>12× GEMM+attn+norm<br/>1.5GB]:::onpath
+    B[<b>B · UNet body</b><br/>3-level + transformer<br/>2452 · 7.6GB]:::onpath
+    C[<b>C · Marigold</b><br/>2-level depth<br/>990 · 2.3GB]:::onpath
+    D[<b>D · VAE</b><br/>trans/sd/marigold<br/>1052]:::offpath
 
     Foundation --> A
     Foundation --> B
@@ -31,11 +38,11 @@ flowchart LR
     Foundation --> D
 
     %% Critical path
-    E[<b>E · Dispatch runner</b><br/>graph → shader dispatch]:::flow
-    F[<b>F · Diffusion scheduler</b><br/>DDIM · 30 steps × 2 passes]:::flow
-    G[<b>G · Layer postprocess</b><br/>depth → bbox → PSD]:::flow
-    H[<b>H · PSD writer</b><br/>reuse psd_sdk]:::flow
-    I[<b>I · Full CLI flags</b><br/>50+ args]:::offpath
+    E[<b>E · Dispatch</b><br/>graph → dispatch]:::flow
+    F[<b>F · Scheduler</b><br/>DDIM 30×2]:::flow
+    G[<b>G · Postprocess</b><br/>depth→bbox→PSD]:::flow
+    H[<b>H · PSD writer</b><br/>psd_sdk]:::flow
+    I[<b>I · CLI flags</b><br/>50+]:::offpath
 
     A --> E
     B --> E
@@ -47,9 +54,9 @@ flowchart LR
     G -.-> I
 
     %% Milestones
-    M1([<b>M1 · CLIP encode</b><br/>GEMM + attn validation · DONE]):::done
-    M2([<b>M2 · UNet step</b><br/>one diffusion step on GPU]):::flow
-    P([<b>CLI PARITY</b><br/>full pipeline ≈ reference PSD]):::flow
+    M1([<b>M1 · CLIP</b><br/>encode · DONE]):::done
+    M2([<b>M2 · UNet</b><br/>one step]):::flow
+    P([<b>CLI PARITY</b><br/>≈ ref PSD]):::flow
 
     E --> M1
     G --> M2
